@@ -1,10 +1,10 @@
 /*
  * ComfyUI-FindModels 前端扩展
- * 功能：侧边栏面板，显示缺失模型/节点，提供下载、本地加载、定位引用节点等功能
+ * 功能：顶部工具栏按钮 → 模态弹窗，显示缺失模型/节点，提供下载、本地加载、定位引用节点等功能
  */
 
 // ============================================================
-// 工具函数
+// 常量与工具函数
 // ============================================================
 const API_BASE = "/findmodels";
 
@@ -35,1089 +35,950 @@ function formatSize(mb) {
     return `${mb.toFixed(1)} MB`;
 }
 
-function copyToClipboard(text) {
-    navigator.clipboard.writeText(text).then(() => {
-        showNotification(`已复制: ${text}`);
-    });
-}
-
-function showNotification(msg, duration = 2000) {
-    const notif = document.createElement("div");
-    notif.className = "fm-notification";
-    notif.textContent = msg;
-    document.body.appendChild(notif);
-    requestAnimationFrame(() => notif.classList.add("fm-notification-show"));
-    setTimeout(() => {
-        notif.classList.remove("fm-notification-show");
-        setTimeout(() => notif.remove(), 300);
-    }, duration);
-}
-
 // ============================================================
 // 样式注入
 // ============================================================
 const STYLES = `
-/* 面板容器 */
-.fm-panel {
-    width: 320px;
-    min-width: 320px;
-    background: var(--comfy-menu-bg, #1a1a2e);
-    border-left: 1px solid var(--border-color, #333);
+/* ===== 顶栏按钮 ===== */
+.fm-toolbar-btn {
+    background: linear-gradient(135deg, #7c3aed, #6d28d9) !important;
+    color: #fff !important;
+    border: none !important;
+    border-radius: 6px !important;
+    padding: 4px 14px !important;
+    font-size: 13px !important;
+    font-weight: 700 !important;
+    cursor: pointer !important;
+    transition: opacity 0.15s !important;
+    white-space: nowrap !important;
+    line-height: 28px !important;
+    letter-spacing: 0.5px !important;
+}
+.fm-toolbar-btn:hover {
+    opacity: 0.85 !important;
+}
+.fm-toolbar-btn:active {
+    opacity: 0.7 !important;
+}
+
+/* ===== 模态蒙层 ===== */
+.fm-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fmFadeIn 0.15s ease;
+}
+.fm-overlay.hidden {
+    display: none;
+}
+
+@keyframes fmFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes fmSlideIn {
+    from { transform: translateY(-20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+/* ===== 模态主体 ===== */
+.fm-modal {
+    background: var(--comfy-menu-bg, #1e1e2e);
+    border: 1px solid var(--border-color, #3a3a4e);
+    border-radius: 12px;
+    width: min(820px, 90vw);
+    max-height: 85vh;
     display: flex;
     flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    animation: fmSlideIn 0.2s ease;
     overflow: hidden;
-    transition: margin-left 0.3s ease;
 }
 
-.fm-panel.collapsed {
-    margin-left: -320px;
+/* ===== 标题栏 ===== */
+.fm-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border-color, #3a3a4e);
+    flex-shrink: 0;
 }
-
-/* 头部搜索 */
-.fm-header {
-    padding: 12px 14px;
-    border-bottom: 1px solid var(--border-color, #333);
+.fm-modal-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--fg-color, #e0e0e0);
     display: flex;
     align-items: center;
     gap: 8px;
 }
+.fm-modal-title .fm-badge {
+    font-size: 11px;
+    font-weight: 600;
+    background: #ef4444;
+    color: #fff;
+    border-radius: 10px;
+    padding: 1px 8px;
+    line-height: 18px;
+}
+.fm-close-btn {
+    background: transparent;
+    border: none;
+    color: var(--fg-color, #888);
+    font-size: 22px;
+    cursor: pointer;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    transition: background 0.15s;
+}
+.fm-close-btn:hover {
+    background: rgba(255,255,255,0.1);
+    color: #fff;
+}
 
+/* ===== 工具栏区域（搜索 + 扫描按钮） ===== */
+.fm-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--border-color, #3a3a4e);
+    flex-shrink: 0;
+}
 .fm-search-box {
     flex: 1;
     background: var(--input-bg, #2a2a3e);
     border: 1px solid var(--border-color, #444);
     border-radius: 6px;
+    padding: 7px 10px;
+    color: var(--fg-color, #ddd);
+    font-size: 13px;
+    outline: none;
+}
+.fm-search-box:focus {
+    border-color: #7c3aed;
+}
+.fm-scan-btn {
+    background: #7c3aed;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 7px 16px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: opacity 0.15s;
+}
+.fm-scan-btn:hover { opacity: 0.85; }
+.fm-scan-btn:active { opacity: 0.7; }
+.fm-scan-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ===== Tab 导航 ===== */
+.fm-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border-color, #3a3a4e);
+    flex-shrink: 0;
+    padding: 0 16px;
+}
+.fm-tab {
+    padding: 10px 18px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    color: #777;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    transition: color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+    position: relative;
+}
+.fm-tab:hover { color: #ccc; }
+.fm-tab.active {
+    color: #7c3aed;
+    border-bottom-color: #7c3aed;
+}
+.fm-tab .fm-count {
+    display: inline-block;
+    background: #7c3aed;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    border-radius: 8px;
+    padding: 0 6px;
+    line-height: 16px;
+    margin-left: 4px;
+    vertical-align: middle;
+}
+
+/* ===== 内容区（滚动） ===== */
+.fm-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 16px;
+    min-height: 200px;
+}
+.fm-content::-webkit-scrollbar {
+    width: 6px;
+}
+.fm-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+.fm-content::-webkit-scrollbar-thumb {
+    background: #444;
+    border-radius: 3px;
+}
+
+/* ===== 模型卡片 ===== */
+.fm-model-card {
+    background: var(--comfy-input-bg, #2a2a3e);
+    border: 1px solid var(--border-color, #3a3a4e);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    transition: border-color 0.15s;
+}
+.fm-model-card:hover {
+    border-color: #555;
+}
+.fm-model-card .fm-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--fg-color, #e0e0e0);
+    word-break: break-all;
+    margin-bottom: 4px;
+}
+.fm-model-card .fm-meta {
+    font-size: 11px;
+    color: #888;
+    margin-bottom: 8px;
+}
+.fm-model-card .fm-meta strong {
+    color: #aaa;
+}
+.fm-model-card .fm-type-tag {
+    display: inline-block;
+    background: #7c3aed;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 600;
+    border-radius: 4px;
+    padding: 1px 7px;
+    margin-right: 4px;
+}
+.fm-model-card .fm-type-tag.node-tag {
+    background: #2563eb;
+}
+.fm-model-card .fm-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.fm-model-card .fm-action-btn {
+    background: rgba(255,255,255,0.08);
+    color: var(--fg-color, #ccc);
+    border: 1px solid #444;
+    border-radius: 5px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+.fm-model-card .fm-action-btn:hover {
+    background: rgba(124,58,237,0.25);
+    border-color: #7c3aed;
+    color: #fff;
+}
+.fm-model-card .fm-action-btn.fm-primary {
+    background: #7c3aed;
+    border-color: #7c3aed;
+    color: #fff;
+}
+.fm-model-card .fm-action-btn.fm-primary:hover {
+    background: #6d28d9;
+}
+.fm-model-card .fm-action-btn.fm-danger {
+    border-color: #ef4444;
+    color: #ef4444;
+}
+.fm-model-card .fm-action-btn.fm-danger:hover {
+    background: rgba(239,68,68,0.2);
+}
+.fm-model-card .fm-source-link {
+    display: inline-block;
+    background: #22c55e;
+    color: #fff;
+    border: none;
+    border-radius: 5px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+}
+.fm-model-card .fm-source-link:hover {
+    opacity: 0.85;
+}
+
+/* ===== 下载进度条 ===== */
+.fm-progress-bar {
+    height: 4px;
+    background: #333;
+    border-radius: 2px;
+    margin: 6px 0;
+    overflow: hidden;
+}
+.fm-progress-bar .fm-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #7c3aed, #22c55e);
+    border-radius: 2px;
+    transition: width 0.5s ease;
+}
+.fm-download-item {
+    background: var(--comfy-input-bg, #2a2a3e);
+    border: 1px solid var(--border-color, #3a3a4e);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+}
+.fm-download-item .fm-dl-name {
+    font-weight: 700;
+    font-size: 13px;
+    margin-bottom: 4px;
+    color: var(--fg-color, #e0e0e0);
+}
+.fm-download-item .fm-dl-status {
+    font-size: 11px;
+    color: #888;
+}
+.fm-download-item .fm-dl-status.done { color: #22c55e; }
+.fm-download-item .fm-dl-status.error { color: #ef4444; }
+
+/* ===== 设置区 ===== */
+.fm-settings {
+    max-width: 600px;
+}
+.fm-setting-group {
+    background: var(--comfy-input-bg, #2a2a3e);
+    border: 1px solid var(--border-color, #3a3a4e);
+    border-radius: 8px;
+    padding: 14px;
+    margin-bottom: 10px;
+}
+.fm-setting-group h4 {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--fg-color, #e0e0e0);
+    margin: 0 0 8px 0;
+}
+.fm-setting-group label {
+    display: block;
+    font-size: 12px;
+    color: #999;
+    margin-bottom: 4px;
+}
+.fm-setting-group input[type="text"],
+.fm-setting-group textarea {
+    width: 100%;
+    background: var(--input-bg, #1a1a2e);
+    border: 1px solid var(--border-color, #444);
+    border-radius: 5px;
     padding: 6px 10px;
     color: var(--fg-color, #ddd);
     font-size: 13px;
     outline: none;
+    box-sizing: border-box;
 }
-
-.fm-search-box:focus {
-    border-color: var(--accent-color, #7c3aed);
+.fm-setting-group input:focus,
+.fm-setting-group textarea:focus {
+    border-color: #7c3aed;
 }
-
-.fm-scan-btn {
-    background: var(--accent-color, #7c3aed);
-    color: white;
+.fm-setting-group textarea {
+    min-height: 50px;
+    resize: vertical;
+    font-family: monospace;
+    font-size: 12px;
+}
+.fm-save-btn {
+    background: #7c3aed;
+    color: #fff;
     border: none;
     border-radius: 6px;
-    padding: 6px 12px;
-    font-size: 12px;
-    cursor: pointer;
-    white-space: nowrap;
-    font-weight: 600;
-}
-
-.fm-scan-btn:hover {
-    opacity: 0.85;
-}
-
-/* Tab 导航 */
-.fm-tabs {
-    display: flex;
-    border-bottom: 1px solid var(--border-color, #333);
-}
-
-.fm-tab {
-    flex: 1;
-    padding: 10px 8px;
-    text-align: center;
-    font-size: 12px;
+    padding: 8px 24px;
+    font-size: 13px;
     font-weight: 700;
     cursor: pointer;
-    color: var(--fg-color, #999);
-    background: transparent;
-    border: none;
-    border-bottom: 2px solid transparent;
-    transition: all 0.2s;
+    margin-top: 8px;
 }
+.fm-save-btn:hover { opacity: 0.85; }
 
-.fm-tab:hover {
-    color: var(--fg-color, #ddd);
-    background: var(--hover-bg, rgba(255,255,255,0.05));
-}
-
-.fm-tab.active {
-    color: var(--accent-color, #7c3aed);
-    border-bottom-color: var(--accent-color, #7c3aed);
-}
-
-/* 内容区域 */
-.fm-content {
-    flex: 1;
-    overflow-y: auto;
-    padding: 10px 0;
-}
-
+/* ===== 空状态 ===== */
 .fm-empty {
     text-align: center;
     padding: 40px 20px;
-    color: var(--fg-color, #666);
-    font-size: 13px;
-}
-
-/* 模型卡片 */
-.fm-model-card {
-    padding: 10px 14px;
-    border-bottom: 1px solid var(--border-color, #222);
-    cursor: pointer;
-    transition: background 0.15s;
-}
-
-.fm-model-card:hover {
-    background: var(--hover-bg, rgba(255,255,255,0.03));
-}
-
-.fm-model-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.fm-model-type-badge {
-    font-size: 10px;
-    padding: 2px 6px;
-    border-radius: 3px;
-    background: var(--accent-color, #7c3aed);
-    color: white;
-    flex-shrink: 0;
-    font-weight: 600;
-}
-
-.fm-model-name {
-    flex: 1;
-    font-size: 13px;
-    color: var(--fg-color, #ddd);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-weight: 500;
-}
-
-.fm-model-name:hover {
-    white-space: normal;
-    word-break: break-all;
-}
-
-.fm-copy-btn {
-    background: none;
-    border: none;
-    color: var(--fg-color, #666);
-    cursor: pointer;
+    color: #666;
     font-size: 14px;
-    padding: 2px;
-    flex-shrink: 0;
-    opacity: 0.6;
+}
+.fm-empty .fm-empty-icon {
+    font-size: 36px;
+    margin-bottom: 10px;
 }
 
-.fm-copy-btn:hover {
-    opacity: 1;
-    color: var(--accent-color, #7c3aed);
-}
-
-.fm-model-actions {
-    display: flex;
-    gap: 6px;
-    margin-top: 8px;
-}
-
-.fm-action-btn {
-    flex: 1;
-    padding: 5px 8px;
-    font-size: 11px;
-    border: 1px solid var(--border-color, #444);
-    border-radius: 4px;
-    background: var(--input-bg, #2a2a3e);
-    color: var(--fg-color, #ccc);
-    cursor: pointer;
-    white-space: nowrap;
+/* ===== 加载状态 ===== */
+.fm-loading {
     text-align: center;
-    transition: all 0.15s;
+    padding: 40px;
+    color: #888;
+}
+.fm-spinner {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    border: 3px solid #333;
+    border-top-color: #7c3aed;
+    border-radius: 50%;
+    animation: fmSpin 0.6s linear infinite;
+}
+@keyframes fmSpin {
+    to { transform: rotate(360deg); }
 }
 
-.fm-action-btn:hover {
-    border-color: var(--accent-color, #7c3aed);
-    color: var(--accent-color, #7c3aed);
-}
-
-.fm-action-btn.primary {
-    background: var(--accent-color, #7c3aed);
-    border-color: var(--accent-color, #7c3aed);
-    color: white;
-}
-
-.fm-action-btn.primary:hover {
-    opacity: 0.85;
-}
-
-.fm-action-btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-}
-
-/* 下载源列表 */
-.fm-source-list {
-    padding: 0 14px 10px;
-}
-
-.fm-source-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 10px;
-    background: var(--input-bg, #2a2a3e);
-    border-radius: 6px;
-    margin-bottom: 4px;
-    font-size: 11px;
-    color: var(--fg-color, #ccc);
-}
-
-.fm-source-name {
-    font-weight: 600;
-    flex-shrink: 0;
-}
-
-.fm-source-meta {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 10px;
-    color: var(--fg-color, #888);
-}
-
-.fm-source-dl-btn {
-    background: var(--accent-color, #7c3aed);
-    color: white;
-    border: none;
-    border-radius: 3px;
-    padding: 3px 8px;
-    font-size: 10px;
-    cursor: pointer;
-    white-space: nowrap;
-}
-
-/* 缺失节点 */
-.fm-node-card {
-    padding: 10px 14px;
-    border-bottom: 1px solid var(--border-color, #222);
-}
-
-.fm-node-name {
-    font-size: 13px;
-    font-weight: 600;
-    color: #ef4444;
-    font-family: monospace;
-}
-
-.fm-node-actions {
-    display: flex;
-    gap: 6px;
-    margin-top: 8px;
-    align-items: center;
-}
-
-.fm-auto-deps {
-    font-size: 11px;
-    color: var(--fg-color, #888);
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}
-
-.fm-auto-deps input[type="checkbox"] {
-    accent-color: var(--accent-color, #7c3aed);
-}
-
-/* 下载任务 */
-.fm-task-card {
-    padding: 10px 14px;
-    border-bottom: 1px solid var(--border-color, #222);
-}
-
-.fm-task-name {
-    font-size: 12px;
-    color: var(--fg-color, #ddd);
-    margin-bottom: 4px;
-}
-
-.fm-progress-bar {
-    height: 4px;
-    background: var(--input-bg, #2a2a3e);
-    border-radius: 2px;
-    overflow: hidden;
-}
-
-.fm-progress-fill {
-    height: 100%;
-    background: var(--accent-color, #7c3aed);
-    border-radius: 2px;
-    transition: width 0.3s ease;
-}
-
-.fm-task-info {
-    display: flex;
-    justify-content: space-between;
-    font-size: 10px;
-    color: var(--fg-color, #666);
-    margin-top: 3px;
-}
-
-.fm-task-status {
-    font-size: 10px;
-    font-weight: 600;
-    margin-top: 3px;
-}
-
-.fm-task-status.completed { color: #22c55e; }
-.fm-task-status.failed { color: #ef4444; }
-.fm-task-status.downloading { color: var(--accent-color, #7c3aed); }
-
-/* 设置面板 */
-.fm-settings {
-    padding: 14px;
-}
-
-.fm-setting-group {
-    margin-bottom: 16px;
-}
-
-.fm-setting-label {
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--fg-color, #ddd);
-    margin-bottom: 6px;
-}
-
-.fm-setting-input {
-    width: 100%;
-    background: var(--input-bg, #2a2a3e);
-    border: 1px solid var(--border-color, #444);
-    border-radius: 6px;
-    padding: 8px 10px;
-    color: var(--fg-color, #ddd);
-    font-size: 12px;
-    outline: none;
-}
-
-.fm-setting-input:focus {
-    border-color: var(--accent-color, #7c3aed);
-}
-
-.fm-setting-link {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 10px;
-    background: var(--input-bg, #2a2a3e);
-    border-radius: 6px;
-    margin-bottom: 4px;
-    font-size: 11px;
-    color: var(--accent-color, #7c3aed);
-    cursor: pointer;
-    text-decoration: none;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.fm-setting-link:hover {
-    opacity: 0.8;
-}
-
-.fm-save-btn {
-    width: 100%;
-    padding: 10px;
-    background: var(--accent-color, #7c3aed);
-    color: white;
-    border: none;
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-}
-
-.fm-save-btn:hover {
-    opacity: 0.85;
-}
-
-/* 本地模型文件浏览器 */
-.fm-browse-dialog {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 500px;
-    max-height: 400px;
-    background: var(--comfy-menu-bg, #1a1a2e);
-    border: 1px solid var(--border-color, #444);
-    border-radius: 10px;
-    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
-    z-index: 1000;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-
-.fm-browse-header {
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border-color, #333);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-}
-
-.fm-browse-path {
-    font-size: 12px;
-    color: var(--fg-color, #888);
-    font-family: monospace;
-}
-
-.fm-browse-close {
-    background: none;
-    border: none;
-    color: var(--fg-color, #888);
-    font-size: 18px;
-    cursor: pointer;
-}
-
-.fm-browse-list {
-    flex: 1;
-    overflow-y: auto;
-}
-
-.fm-browse-item {
-    padding: 8px 16px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-    font-size: 13px;
-    color: var(--fg-color, #ddd);
-}
-
-.fm-browse-item:hover {
-    background: var(--hover-bg, rgba(255,255,255,0.05));
-}
-
-.fm-browse-item.dir::before {
-    content: "📁";
-}
-
-.fm-browse-item.file::before {
-    content: "📄";
-}
-
-.fm-browse-item-size {
-    margin-left: auto;
-    font-size: 10px;
-    color: var(--fg-color, #666);
-}
-
-/* 通知 */
+/* ===== 通知 Toast ===== */
 .fm-notification {
     position: fixed;
-    bottom: 20px;
+    bottom: 24px;
     left: 50%;
     transform: translateX(-50%) translateY(20px);
-    background: var(--comfy-menu-bg, #1a1a2e);
-    border: 1px solid var(--accent-color, #7c3aed);
-    color: var(--fg-color, #ddd);
-    padding: 8px 20px;
+    background: #1e1e2e;
+    color: #e0e0e0;
+    border: 1px solid #3a3a4e;
     border-radius: 8px;
+    padding: 10px 20px;
     font-size: 13px;
+    font-weight: 600;
+    z-index: 100000;
     opacity: 0;
-    transition: all 0.3s ease;
-    z-index: 2000;
+    transition: opacity 0.3s, transform 0.3s;
     pointer-events: none;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
 }
-
 .fm-notification.fm-notification-show {
     opacity: 1;
     transform: translateX(-50%) translateY(0);
 }
-
-/* 工具栏联动 */
-.fm-toolbar-btn {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 10px;
-    font-size: 12px;
-    background: transparent;
-    border: 1px solid var(--border-color, #444);
-    border-radius: 4px;
-    color: var(--fg-color, #ccc);
-    cursor: pointer;
-    white-space: nowrap;
-}
-
-.fm-toolbar-btn:hover {
-    border-color: var(--accent-color, #7c3aed);
-    color: var(--accent-color, #7c3aed);
-}
-
-.fm-toolbar-btn.active {
-    background: var(--accent-color, #7c3aed);
-    border-color: var(--accent-color, #7c3aed);
-    color: white;
-}
-
-.fm-toolbar-btn svg {
-    width: 14px;
-    height: 14px;
-}
-
-/* 遮罩 */
-.fm-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0,0,0,0.5);
-    z-index: 999;
-}
 `;
 
 // ============================================================
-// 主面板组件
+// FindModelsPanel - 主面板类
 // ============================================================
 class FindModelsPanel {
     constructor(app) {
         this.app = app;
-        this.panelEl = null;
-        this.activeTab = "models"; // models | nodes | downloads | settings
+        this.overlay = null;      // 蒙层 + 模态
+        this.contentEl = null;    // 内容容器
+
+        this.activeTab = "missing";
         this.missingModels = [];
         this.missingNodes = [];
         this.downloadTasks = {};
-        this.downloadPollTimer = null;
-        this.quarkCookie = "";
+        this.searchFilter = "";
+        this.quarkCookie = localStorage.getItem("fm_quark_cookie") || "";
         this.quarkLinks = {
-            library1: "",
-            library2: "",
+            library1: localStorage.getItem("fm_quark_lib1") || "https://pan.quark.cn/s/fb913d649b18",
+            library2: localStorage.getItem("fm_quark_lib2") || "https://pan.quark.cn/s/4680ac866516",
         };
-        this.autoInstallDeps = true;
-        this.panelOpen = false;
 
-        this._loadSettings();
+        this.downloadPollTimer = null;
+        this.init();
+    }
+
+    init() {
         this._injectStyles();
-        this._injectToolbarButton();
-        this._createPanel();
-        this._bindEvents();
-    }
-
-    // ---- 设置持久化 ----
-    _loadSettings() {
-        try {
-            const saved = localStorage.getItem("fm_settings");
-            if (saved) {
-                const data = JSON.parse(saved);
-                this.quarkCookie = data.quarkCookie || "";
-                this.quarkLinks = data.quarkLinks || { library1: "", library2: "" };
-                this.autoInstallDeps = data.autoInstallDeps !== false;
-            }
-        } catch {}
-    }
-
-    _saveSettings() {
-        localStorage.setItem("fm_settings", JSON.stringify({
-            quarkCookie: this.quarkCookie,
-            quarkLinks: this.quarkLinks,
-            autoInstallDeps: this.autoInstallDeps,
-        }));
+        this._addToolbarButton();
     }
 
     // ---- 注入样式 ----
     _injectStyles() {
+        if (document.getElementById("fm-styles")) return;
         const style = document.createElement("style");
+        style.id = "fm-styles";
         style.textContent = STYLES;
         document.head.appendChild(style);
     }
 
-    // ---- 工具栏按钮 ----
-    _injectToolbarButton() {
-        const toolbar = document.querySelector(".comfyui-menu .comfyui-toolbar");
-        if (!toolbar) {
-            // fallback: 等待 DOM 就绪
-            setTimeout(() => this._injectToolbarButton(), 500);
+    // ---- 添加顶栏按钮 ----
+    _addToolbarButton() {
+        // 找 ComfyUI 的菜单容器
+        const menu = document.querySelector(".comfy-menu");
+        if (!menu) {
+            // 新式 ComfyUI 结构
+            const toolbar = document.querySelector(".comfyui-toolbar") || 
+                            document.querySelector("#comfy-ui-top") ||
+                            document.querySelector(".comfyui-menu-btns") ||
+                            document.querySelector(".comfyui-menu");
+            if (toolbar) {
+                const btn = document.createElement("button");
+                btn.className = "fm-toolbar-btn";
+                btn.textContent = "🔍 查找模型";
+                btn.title = "查找缺失模型和节点";
+                btn.onclick = () => this._openModal();
+                toolbar.appendChild(btn);
+                return;
+            }
+            // 兜底：加到 body
+            const btn = document.createElement("button");
+            btn.className = "fm-toolbar-btn";
+            btn.textContent = "🔍 查找模型";
+            btn.style.position = "fixed";
+            btn.style.top = "8px";
+            btn.style.right = "8px";
+            btn.style.zIndex = "9999";
+            btn.onclick = () => this._openModal();
+            document.body.appendChild(btn);
             return;
         }
 
+        // 旧式 ComfyUI：加在 comfy-menu 内，排在第一个
         const btn = document.createElement("button");
         btn.className = "fm-toolbar-btn";
-        btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> 查找缺失模型和节点`;
-        btn.title = "打开 FindModels 面板";
-        btn.onclick = () => this.togglePanel();
-        btn.id = "fm-toolbar-toggle";
-
-        toolbar.appendChild(btn);
+        btn.textContent = "🔍 查找模型";
+        btn.title = "查找缺失模型和节点";
+        btn.onclick = () => this._openModal();
+        
+        // 插到菜单最前面
+        const firstChild = menu.firstChild;
+        if (firstChild) {
+            menu.insertBefore(btn, firstChild);
+        } else {
+            menu.appendChild(btn);
+        }
     }
 
-    // ---- 创建面板 ----
-    _createPanel() {
-        this.panelEl = document.createElement("div");
-        this.panelEl.className = "fm-panel collapsed";
-        this.panelEl.id = "fm-panel";
+    // ---- 打开模态窗口 ----
+    async _openModal() {
+        if (this.overlay) {
+            this.overlay.classList.remove("hidden");
+            await this._renderContent();
+            return;
+        }
+        this._buildModal();
+        await this._renderContent();
+    }
 
-        this.panelEl.innerHTML = `
-            <div class="fm-header">
-                <input type="text" class="fm-search-box" placeholder="搜索模型..." id="fm-search" />
-                <button class="fm-scan-btn" id="fm-scan">扫描</button>
-            </div>
-            <div class="fm-tabs" id="fm-tabs">
-                <button class="fm-tab active" data-tab="models">缺失模型</button>
-                <button class="fm-tab" data-tab="nodes">缺失节点</button>
-                <button class="fm-tab" data-tab="downloads">下载任务</button>
-                <button class="fm-tab" data-tab="settings">设置</button>
-            </div>
-            <div class="fm-content" id="fm-content">
-                <div class="fm-empty">打开工作流后点击「扫描」查找缺失模型</div>
+    _buildModal() {
+        const ov = document.createElement("div");
+        ov.className = "fm-overlay";
+        ov.innerHTML = `
+            <div class="fm-modal">
+                <div class="fm-modal-header">
+                    <div class="fm-modal-title">
+                        🔍 查找缺失模型和节点
+                        <span class="fm-badge" id="fm-badge" style="display:none">0</span>
+                    </div>
+                    <button class="fm-close-btn" title="关闭">×</button>
+                </div>
+                <div class="fm-toolbar">
+                    <input class="fm-search-box" type="text" placeholder="搜索模型名称..." id="fm-search">
+                    <button class="fm-scan-btn" id="fm-scan-btn">🔄 扫描工作流</button>
+                </div>
+                <div class="fm-tabs" id="fm-tabs">
+                    <button class="fm-tab active" data-tab="missing">缺失模型 <span class="fm-count" id="fm-count-models">0</span></button>
+                    <button class="fm-tab" data-tab="nodes">缺失节点 <span class="fm-count" id="fm-count-nodes">0</span></button>
+                    <button class="fm-tab" data-tab="downloads">下载中 <span class="fm-count" id="fm-count-dls">0</span></button>
+                    <button class="fm-tab" data-tab="settings">设置</button>
+                </div>
+                <div class="fm-content" id="fm-content"></div>
             </div>
         `;
+        document.body.appendChild(ov);
+        this.overlay = ov;
+        this.contentEl = ov.querySelector("#fm-content");
 
-        // 插入到 canvas 旁边的侧栏
-        const canvasContainer = document.querySelector("#graph-canvas")?.parentElement
-            || document.querySelector(".comfyui-canvas-container")
-            || document.querySelector("body");
-
-        if (canvasContainer) {
-            canvasContainer.style.display = "flex";
-            canvasContainer.appendChild(this.panelEl);
-        } else {
-            document.body.appendChild(this.panelEl);
-        }
-    }
-
-    // ---- 事件绑定 ----
-    _bindEvents() {
-        // Tab 切换
-        this.panelEl.querySelector("#fm-tabs").addEventListener("click", (e) => {
-            const tab = e.target.closest(".fm-tab");
-            if (!tab) return;
-            this.activeTab = tab.dataset.tab;
-            this.panelEl.querySelectorAll(".fm-tab").forEach(t => t.classList.remove("active"));
-            tab.classList.add("active");
-            this._renderContent();
+        // 事件绑定
+        ov.querySelector(".fm-close-btn").onclick = () => {
+            ov.classList.add("hidden");
+        };
+        ov.addEventListener("click", (e) => {
+            if (e.target === ov) ov.classList.add("hidden");
         });
 
-        // 扫描按钮
-        this.panelEl.querySelector("#fm-scan").addEventListener("click", () => this.scanWorkflow());
+        // Tab 切换
+        ov.querySelectorAll(".fm-tab").forEach(tab => {
+            tab.onclick = () => {
+                ov.querySelectorAll(".fm-tab").forEach(t => t.classList.remove("active"));
+                tab.classList.add("active");
+                this.activeTab = tab.dataset.tab;
+                this._renderContent();
+            };
+        });
 
         // 搜索框
-        this.panelEl.querySelector("#fm-search").addEventListener("input", (e) => {
-            this._renderContent(e.target.value.toLowerCase());
-        });
+        const searchBox = ov.querySelector("#fm-search");
+        let searchTimer;
+        searchBox.oninput = () => {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(() => {
+                this.searchFilter = searchBox.value.trim().toLowerCase();
+                this._renderContent();
+            }, 300);
+        };
 
-        // 面板内容事件委托
-        this.panelEl.querySelector("#fm-content").addEventListener("click", (e) => {
-            const btn = e.target.closest("[data-action]");
-            if (!btn) return;
-            const action = btn.dataset.action;
-            const name = btn.dataset.name || "";
-            const type = btn.dataset.type || "";
-            const url = btn.dataset.url || "";
-
-            switch (action) {
-                case "copy": copyToClipboard(name); break;
-                case "locate": this._locateNode(name); break;
-                case "load-local": this._browseLocal(name, type); break;
-                case "find-source": this._findDownloadSource(name, type); break;
-                case "download": this._startDownload(url, name, type); break;
-                case "install-plugin": this._installPlugin(name); break;
-                case "open-link": window.open(url, "_blank"); break;
-            }
-        });
-    }
-
-    // ---- 面板开关 ----
-    togglePanel() {
-        this.panelOpen = !this.panelOpen;
-        this.panelEl.classList.toggle("collapsed", !this.panelOpen);
-
-        const btn = document.getElementById("fm-toolbar-toggle");
-        if (btn) btn.classList.toggle("active", this.panelOpen);
-
-        if (this.panelOpen && this.activeTab === "downloads") {
-            this._startPolling();
-        } else {
-            this._stopPolling();
-        }
+        // 扫描按钮
+        ov.querySelector("#fm-scan-btn").onclick = () => this._scanWorkflow();
     }
 
     // ---- 扫描工作流 ----
-    async scanWorkflow() {
+    async _scanWorkflow() {
+        const btn = this.overlay.querySelector("#fm-scan-btn");
+        btn.disabled = true;
+        btn.textContent = "⏳ 扫描中...";
+
         try {
-            // 获取当前工作流
-            const graphData = this.app.graph?.toJSON?.();
-            if (!graphData) {
-                showNotification("未找到工作流数据");
-                return;
-            }
+            // 获取当前工作流 JSON
+            const workflow = await this.app.graph.serialize();
+            
+            // 扫描缺失模型
+            const scanResult = await apiPost("scan", { workflow });
+            this.missingModels = scanResult.missing_models || [];
 
-            const scanBtn = this.panelEl.querySelector("#fm-scan");
-            scanBtn.textContent = "扫描中...";
-            scanBtn.disabled = true;
+            // 检查缺失节点
+            const nodeResult = await apiPost("check-missing-nodes", { workflow });
+            this.missingNodes = nodeResult.missing_nodes || [];
 
-            const result = await apiPost("scan", { workflow: graphData });
-
-            this.missingModels = result.missing_models || [];
-            this.missingNodes = result.missing_nodes || [];
-
-            // 同时检查缺失节点
-            try {
-                const nodeResult = await apiPost("check-missing-nodes", { workflow: graphData });
-                if (nodeResult.missing_nodes) {
-                    this.missingNodes = nodeResult.missing_nodes;
-                }
-            } catch {}
-
-            scanBtn.textContent = "扫描";
-            scanBtn.disabled = false;
-
-            // 自动切换到有结果的 tab
-            if (this.missingModels.length > 0) {
-                this.activeTab = "models";
-            } else if (this.missingNodes.length > 0) {
-                this.activeTab = "nodes";
-            }
-
+            // 更新计数
+            this._updateBadges();
             this._renderContent();
-            showNotification(`找到 ${this.missingModels.length} 个缺失模型, ${this.missingNodes.length} 个缺失节点`);
-
-            // 如果面板未打开，自动打开
-            if (!this.panelOpen) this.togglePanel();
-
+            showNotification(`扫描完成：${this.missingModels.length} 个缺失模型，${this.missingNodes.length} 个缺失节点`);
         } catch (e) {
-            const scanBtn = this.panelEl.querySelector("#fm-scan");
-            if (scanBtn) {
-                scanBtn.textContent = "扫描";
-                scanBtn.disabled = false;
-            }
             showNotification(`扫描失败: ${e.message}`);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = "🔄 扫描工作流";
         }
+    }
+
+    _updateBadges() {
+        const total = this.missingModels.length + this.missingNodes.length;
+        const badge = this.overlay.querySelector("#fm-badge");
+        if (total > 0) {
+            badge.style.display = "inline";
+            badge.textContent = total;
+        } else {
+            badge.style.display = "none";
+        }
+
+        this.overlay.querySelector("#fm-count-models").textContent = this.missingModels.length;
+        this.overlay.querySelector("#fm-count-nodes").textContent = this.missingNodes.length;
+        const dlCount = Object.keys(this.downloadTasks).length;
+        this.overlay.querySelector("#fm-count-dls").textContent = dlCount;
     }
 
     // ---- 渲染内容 ----
-    _renderContent(filter = "") {
-        const container = this.panelEl.querySelector("#fm-content");
+    async _renderContent() {
+        if (!this.contentEl) return;
+        this._updateBadges();
 
         switch (this.activeTab) {
-            case "models": container.innerHTML = this._renderModels(filter); break;
-            case "nodes": container.innerHTML = this._renderNodes(filter); break;
-            case "downloads": container.innerHTML = this._renderDownloads(); break;
-            case "settings": container.innerHTML = this._renderSettings(); break;
+            case "missing":
+                this._renderMissingModels();
+                break;
+            case "nodes":
+                this._renderMissingNodes();
+                break;
+            case "downloads":
+                this._renderDownloads();
+                break;
+            case "settings":
+                this._renderSettings();
+                break;
         }
     }
 
-    _renderModels(filter = "") {
-        const models = filter
-            ? this.missingModels.filter(m => m.name.toLowerCase().includes(filter))
-            : this.missingModels;
+    _renderMissingModels() {
+        const el = this.contentEl;
+        const models = this.missingModels.filter(m => {
+            if (!this.searchFilter) return true;
+            return m.name.toLowerCase().includes(this.searchFilter);
+        });
 
         if (models.length === 0) {
-            return '<div class="fm-empty">🎉 没有缺失的模型</div>';
-        }
-
-        return models.map(m => `
-            <div class="fm-model-card" data-model="${this._escAttr(m.name)}">
-                <div class="fm-model-header">
-                    <span class="fm-model-type-badge">${this._esc(m.type)}</span>
-                    <span class="fm-model-name" title="${this._escAttr(m.name)}">${this._esc(m.name)}</span>
-                    <button class="fm-copy-btn" data-action="copy" data-name="${this._escAttr(m.name)}" title="复制模型名称">📋</button>
+            el.innerHTML = `
+                <div class="fm-empty">
+                    <div class="fm-empty-icon">✅</div>
+                    ${this.searchFilter ? '未找到匹配的模型' : '没有缺失模型，点击"扫描工作流"开始检测'}
                 </div>
-                <div class="fm-model-actions">
-                    <button class="fm-action-btn" data-action="locate" data-name="${this._escAttr(m.name)}">定位引用节点</button>
-                    <button class="fm-action-btn" data-action="load-local" data-name="${this._escAttr(m.name)}" data-type="${this._escAttr(m.type)}">加载本地模型</button>
-                    <button class="fm-action-btn primary" data-action="find-source" data-name="${this._escAttr(m.name)}" data-type="${this._escAttr(m.type)}">查找下载来源</button>
-                </div>
-            </div>
-        `).join("");
-    }
-
-    _renderNodes(filter = "") {
-        const nodes = filter
-            ? this.missingNodes.filter(n => n.toLowerCase().includes(filter))
-            : this.missingNodes;
-
-        if (nodes.length === 0) {
-            return '<div class="fm-empty">🎉 没有缺失的节点</div>';
-        }
-
-        return nodes.map(n => `
-            <div class="fm-node-card">
-                <div class="fm-node-name">${this._esc(n)}</div>
-                <div class="fm-node-actions">
-                    <label class="fm-auto-deps">
-                        <input type="checkbox" id="fm-auto-deps-${this._escAttr(n)}" ${this.autoInstallDeps ? "checked" : ""} />
-                        自动安装依赖
-                    </label>
-                    <button class="fm-action-btn primary" data-action="install-plugin" data-name="${this._escAttr(n)}">链接安装插件</button>
-                </div>
-            </div>
-        `).join("");
-    }
-
-    _renderDownloads() {
-        if (Object.keys(this.downloadTasks).length === 0) {
-            return '<div class="fm-empty">当前无下载任务</div>';
-        }
-
-        return Object.values(this.downloadTasks).map(task => `
-            <div class="fm-task-card">
-                <div class="fm-task-name">${this._esc(task.model_name)}</div>
-                <div class="fm-progress-bar">
-                    <div class="fm-progress-fill" style="width: ${task.progress}%"></div>
-                </div>
-                <div class="fm-task-info">
-                    <span>${formatSize(task.downloaded_mb)} / ${formatSize(task.size_mb)}</span>
-                    <span>${task.progress.toFixed(1)}%</span>
-                </div>
-                <div class="fm-task-status ${task.status}">${
-                    task.status === "completed" ? "✅ 下载完成" :
-                    task.status === "failed" ? `❌ ${task.error || "失败"}` :
-                    `⬇️ 下载中...`
-                }</div>
-            </div>
-        `).join("");
-    }
-
-    _renderSettings() {
-        return `
-            <div class="fm-settings">
-                <div class="fm-setting-group">
-                    <div class="fm-setting-label">夸克链接</div>
-                    <input type="text" class="fm-setting-input" id="fm-quark-link-1"
-                        placeholder="夸克模型库链接 1" value="${this._esc(this.quarkLinks.library1)}" />
-                    <input type="text" class="fm-setting-input" id="fm-quark-link-2"
-                        placeholder="夸克模型库链接 2" value="${this._esc(this.quarkLinks.library2)}"
-                        style="margin-top: 6px;" />
-                </div>
-                <div class="fm-setting-group">
-                    <div class="fm-setting-label">夸克直链登录态（Cookie）</div>
-                    <input type="text" class="fm-setting-input" id="fm-quark-cookie"
-                        placeholder="可选，用于解析夸克直链" value="${this._esc(this.quarkCookie)}" />
-                </div>
-                <div class="fm-setting-group">
-                    <button class="fm-save-btn" id="fm-save-settings">保存设置</button>
-                </div>
-            </div>
-        ` + (() => {
-            // 设置面板事件绑定
-            setTimeout(() => {
-                const saveBtn = this.panelEl.querySelector("#fm-save-settings");
-                if (saveBtn) {
-                    saveBtn.onclick = () => {
-                        this.quarkLinks.library1 = this.panelEl.querySelector("#fm-quark-link-1").value;
-                        this.quarkLinks.library2 = this.panelEl.querySelector("#fm-quark-link-2").value;
-                        this.quarkCookie = this.panelEl.querySelector("#fm-quark-cookie").value;
-                        this._saveSettings();
-                        showNotification("设置已保存");
-                    };
-                }
-            }, 0);
-            return "";
-        })();
-    }
-
-    // ---- 功能实现 ----
-
-    async _locateNode(modelName) {
-        try {
-            const graphData = this.app.graph?.toJSON?.();
-            if (!graphData) return showNotification("未找到工作流");
-
-            const result = await apiPost("locate", { model_name: modelName, workflow: graphData });
-            if (result.found) {
-                // 高亮引用节点
-                for (const ref of result.references) {
-                    const node = this.app.graph.getNodeById(ref.node_id);
-                    if (node) {
-                        this.app.graph.centerOnNode(node);
-                        // 闪烁效果
-                        node.selected = true;
-                        setTimeout(() => { node.selected = false; }, 2000);
-                    }
-                }
-                showNotification(`已定位 ${result.references.length} 个引用节点`);
-            } else {
-                showNotification("未找到引用节点");
-            }
-        } catch (e) {
-            showNotification(`定位失败: ${e.message}`);
-        }
-    }
-
-    _browseLocal(modelName, modelType) {
-        // 创建本地文件浏览对话框
-        const overlay = document.createElement("div");
-        overlay.className = "fm-overlay";
-
-        const dialog = document.createElement("div");
-        dialog.className = "fm-browse-dialog";
-        dialog.innerHTML = `
-            <div class="fm-browse-header">
-                <span class="fm-browse-path" id="fm-browse-path">选择本地模型文件</span>
-                <button class="fm-browse-close" id="fm-browse-close">✕</button>
-            </div>
-            <div class="fm-browse-list" id="fm-browse-list"></div>
-        `;
-
-        document.body.appendChild(overlay);
-        document.body.appendChild(dialog);
-
-        const close = () => { overlay.remove(); dialog.remove(); };
-        dialog.querySelector("#fm-browse-close").onclick = close;
-        overlay.onclick = close;
-
-        let currentPath = "";
-        const loadDir = async (path) => {
-            try {
-                const data = await apiPost("browse", { path });
-                currentPath = data.path;
-                dialog.querySelector("#fm-browse-path").textContent = data.path;
-                dialog.querySelector("#fm-browse-list").innerHTML = data.entries.map(e => `
-                    <div class="fm-browse-item ${e.is_dir ? "dir" : "file"}"
-                         data-path="${this._escAttr(path + "/" + e.name)}" data-is-dir="${e.is_dir}">
-                        <span>${this._esc(e.name)}</span>
-                        ${e.is_dir ? "" : `<span class="fm-browse-item-size">${formatSize(e.size_mb || 0)}</span>`}
-                    </div>
-                `).join("");
-
-                dialog.querySelector("#fm-browse-list").onclick = async (ev) => {
-                    const item = ev.target.closest(".fm-browse-item");
-                    if (!item) return;
-                    if (item.dataset.isDir === "true") {
-                        await loadDir(item.dataset.path);
-                    } else {
-                        // 选择文件 → 加载
-                        try {
-                            const result = await apiPost("load-local", {
-                                file_path: item.dataset.path,
-                                model_name: modelName,
-                                model_type: modelType,
-                            });
-                            if (result.success) {
-                                showNotification(`✅ 模型已加载: ${result.filename}`);
-                                close();
-                                // 从缺失列表移除
-                                this.missingModels = this.missingModels.filter(m => m.name !== modelName);
-                                this._renderContent();
-                            } else {
-                                showNotification(`❌ ${result.error}`);
-                            }
-                        } catch (e) {
-                            showNotification(`加载失败: ${e.message}`);
-                        }
-                    }
-                };
-
-                // 返回上级目录
-                if (path !== "" && path !== "/") {
-                    const parentPath = path.substring(0, path.lastIndexOf("/")) || "/";
-                    const backItem = document.createElement("div");
-                    backItem.className = "fm-browse-item dir";
-                    backItem.innerHTML = "<span>..</span>";
-                    backItem.onclick = () => loadDir(parentPath);
-                    dialog.querySelector("#fm-browse-list").prepend(backItem);
-                }
-            } catch (e) {
-                showNotification(`浏览失败: ${e.message}`);
-            }
-        };
-
-        loadDir(folder_paths?.models_dir || "");
-    }
-
-    async _findDownloadSource(modelName, modelType) {
-        // 展开下载源列表
-        const card = this.panelEl.querySelector(`[data-model="${this._escAttr(modelName)}"]`);
-        if (!card) return;
-
-        // 检查是否已展开
-        const existing = card.querySelector(".fm-source-list");
-        if (existing) {
-            existing.remove();
+            `;
             return;
         }
 
-        const sourceContainer = document.createElement("div");
-        sourceContainer.className = "fm-source-list";
-        sourceContainer.innerHTML = '<div class="fm-empty" style="padding:10px">搜索中...</div>';
-        card.appendChild(sourceContainer);
+        el.innerHTML = models.map(m => `
+            <div class="fm-model-card" data-name="${this._escAttr(m.name)}" data-type="${this._escAttr(m.type || 'checkpoints')}">
+                <div class="fm-name">${this._esc(m.name)}</div>
+                <div class="fm-meta">
+                    <span class="fm-type-tag">${this._esc(this._modelTypeLabel(m.type))}</span>
+                    ${m.local_path ? `<strong>路径:</strong> ${this._esc(m.local_path)}` : '<strong>状态:</strong> 缺失'}
+                </div>
+                <div class="fm-actions">
+                    <button class="fm-action-btn fm-primary" data-action="download">⬇ 查找下载来源</button>
+                    <button class="fm-action-btn" data-action="locate">📍 定位引用节点</button>
+                    <button class="fm-action-btn" data-action="browse">📂 加载本地模型</button>
+                </div>
+                <div class="fm-sources" style="display:none;margin-top:8px"></div>
+            </div>
+        `).join("");
+
+        // 事件绑定
+        el.querySelectorAll(".fm-model-card").forEach(card => {
+            const name = card.dataset.name;
+            const type = card.dataset.type;
+
+            card.querySelector('[data-action="download"]').onclick = (e) => {
+                e.stopPropagation();
+                this._searchDownloadSources(card, name, type);
+            };
+            card.querySelector('[data-action="locate"]').onclick = async (e) => {
+                e.stopPropagation();
+                await this._locateNode(name);
+            };
+            card.querySelector('[data-action="browse"]').onclick = (e) => {
+                e.stopPropagation();
+                this._browseLocal(card, name, type);
+            };
+        });
+    }
+
+    _renderMissingNodes() {
+        const el = this.contentEl;
+        const nodes = this.missingNodes.filter(n => {
+            if (!this.searchFilter) return true;
+            return n.toLowerCase().includes(this.searchFilter);
+        });
+
+        if (nodes.length === 0) {
+            el.innerHTML = `
+                <div class="fm-empty">
+                    <div class="fm-empty-icon">✅</div>
+                    ${this.searchFilter ? '未找到匹配的节点' : '没有缺失节点'}
+                </div>
+            `;
+            return;
+        }
+
+        el.innerHTML = nodes.map(n => `
+            <div class="fm-model-card">
+                <div class="fm-name">${this._esc(n)}</div>
+                <div class="fm-meta">
+                    <span class="fm-type-tag node-tag">缺失节点</span>
+                    该节点类型未注册，需安装对应的 ComfyUI 插件
+                </div>
+                <div class="fm-actions">
+                    <button class="fm-action-btn fm-primary" data-action="install">📦 搜索插件</button>
+                </div>
+            </div>
+        `).join("");
+
+        el.querySelectorAll('[data-action="install"]').forEach((btn, i) => {
+            btn.onclick = () => this._installPlugin(nodes[i]);
+        });
+    }
+
+    async _renderDownloads() {
+        const el = this.contentEl;
+        try {
+            const data = await apiGet("download/status");
+            this.downloadTasks = data;
+        } catch {}
+
+        const tasks = Object.values(this.downloadTasks);
+        if (tasks.length === 0) {
+            el.innerHTML = '<div class="fm-empty"><div class="fm-empty-icon">📥</div>暂无下载任务</div>';
+            return;
+        }
+
+        el.innerHTML = tasks.map(t => {
+            const pct = t.progress || 0;
+            const statusClass = t.status === "done" ? "done" : t.status === "error" ? "error" : "";
+            return `
+                <div class="fm-download-item">
+                    <div class="fm-dl-name">${this._esc(t.model_name || t.name || "未知")}</div>
+                    <div class="fm-dl-status ${statusClass}">${this._esc(t.status)}</div>
+                    ${t.status === "downloading" ? `
+                        <div class="fm-progress-bar">
+                            <div class="fm-progress-fill" style="width:${pct}%"></div>
+                        </div>
+                        <div style="font-size:11px;color:#888">${pct}%</div>
+                    ` : ""}
+                </div>
+            `;
+        }).join("");
+    }
+
+    _renderSettings() {
+        const el = this.contentEl;
+        el.innerHTML = `
+            <div class="fm-settings">
+                <div class="fm-setting-group">
+                    <h4>夸克网盘 Cookie</h4>
+                    <label>用于解析夸克网盘直链，从浏览器 F12 → Network → Request Header 获取</label>
+                    <input type="text" id="fm-quark-cookie" placeholder="__QUARK_COOKIE__" value="${this._escAttr(this.quarkCookie)}">
+                </div>
+                <div class="fm-setting-group">
+                    <h4>夸克模型库链接 1</h4>
+                    <input type="text" id="fm-quark-lib1" value="${this._escAttr(this.quarkLinks.library1)}">
+                </div>
+                <div class="fm-setting-group">
+                    <h4>夸克模型库链接 2</h4>
+                    <input type="text" id="fm-quark-lib2" value="${this._escAttr(this.quarkLinks.library2)}">
+                </div>
+                <button class="fm-save-btn" id="fm-save-settings">💾 保存设置</button>
+            </div>
+        `;
+
+        el.querySelector("#fm-save-settings").onclick = () => {
+            const cookie = el.querySelector("#fm-quark-cookie").value;
+            const lib1 = el.querySelector("#fm-quark-lib1").value;
+            const lib2 = el.querySelector("#fm-quark-lib2").value;
+            localStorage.setItem("fm_quark_cookie", cookie);
+            localStorage.setItem("fm_quark_lib1", lib1);
+            localStorage.setItem("fm_quark_lib2", lib2);
+            this.quarkCookie = cookie;
+            this.quarkLinks.library1 = lib1;
+            this.quarkLinks.library2 = lib2;
+            showNotification("设置已保存");
+        };
+    }
+
+    // ---- 查找下载来源 ----
+    async _searchDownloadSources(card, name, type) {
+        const sourcesEl = card.querySelector(".fm-sources");
+        if (sourcesEl.style.display === "block") {
+            sourcesEl.style.display = "none";
+            return;
+        }
+
+        sourcesEl.style.display = "block";
+        sourcesEl.innerHTML = '<div class="fm-loading"><div class="fm-spinner"></div></div>';
 
         try {
-            const result = await apiPost("search", {
-                model_name: modelName,
+            const result = await apiPost("search-downloads", {
+                model_name: name,
                 source: "civitai",
                 quark_cookie: this.quarkCookie,
             });
 
-            if (result.results?.length > 0) {
-                sourceContainer.innerHTML = result.results.map(r => `
-                    <div class="fm-source-item">
-                        <div>
-                            <div class="fm-source-name">${this._esc(r.name)}</div>
-                            <div class="fm-source-meta">
-                                <span>匹配度: ${r.match_score}%</span>
-                                <span>${r.type || ""}</span>
-                                ${r.size_mb ? `<span>${formatSize(r.size_mb)}</span>` : ""}
-                            </div>
-                        </div>
-                        <button class="fm-source-dl-btn" data-action="download"
-                            data-url="${this._escAttr(r.url)}" data-name="${this._escAttr(modelName)}" data-type="${this._escAttr(modelType)}">
-                            下载
-                        </button>
+            const items = result.results || [];
+            if (items.length > 0) {
+                sourcesEl.innerHTML = items.map(item => `
+                    <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-top:1px solid #333;font-size:12px">
+                        <span style="color:#ccc;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this._esc(item.name)}</span>
+                        <span style="color:#888;margin:0 8px;flex-shrink:0">${item.size_mb ? formatSize(item.size_mb) : ''}</span>
+                        <button class="fm-source-link" data-url="${this._escAttr(item.url)}">⬇ 下载</button>
                     </div>
                 `).join("");
-            } else {
-                // 没有 Civitai 结果，尝试夸克链接
-                if (this.quarkLinks.library1 || this.quarkLinks.library2) {
-                    sourceContainer.innerHTML = `
-                        <div class="fm-source-item" style="cursor:pointer" data-action="open-link" data-url="${this._escAttr(this.quarkLinks.library1)}">
-                            <span>夸克模型库 1</span>
-                            <span style="font-size:10px;color:#888">点击打开</span>
-                        </div>
-                        ${this.quarkLinks.library2 ? `
-                        <div class="fm-source-item" style="cursor:pointer" data-action="open-link" data-url="${this._escAttr(this.quarkLinks.library2)}">
-                            <span>夸克模型库 2</span>
-                            <span style="font-size:10px;color:#888">点击打开</span>
-                        </div>` : ""}
-                    `;
-                } else {
-                    sourceContainer.innerHTML = '<div class="fm-empty" style="padding:10px">未找到下载源，请在设置中配置夸克链接</div>';
-                }
+
+                sourcesEl.querySelectorAll(".fm-source-link").forEach(link => {
+                    link.onclick = () => {
+                        this._startDownload(link.dataset.url, name, type);
+                    };
+                });
+            }
+
+            // 显示夸克链接
+            if (this.quarkLinks.library1 || this.quarkLinks.library2) {
+                const quarkHtml = `
+                    <div style="margin-top:8px;padding-top:8px;border-top:1px solid #333">
+                        <div style="font-size:11px;color:#888;margin-bottom:4px">夸克模型库：</div>
+                        ${this.quarkLinks.library1 ? `<a href="${this._escAttr(this.quarkLinks.library1)}" target="_blank" style="display:block;font-size:12px;color:#7c3aed;text-decoration:underline;margin-bottom:2px">📁 模型库 1</a>` : ''}
+                        ${this.quarkLinks.library2 ? `<a href="${this._escAttr(this.quarkLinks.library2)}" target="_blank" style="display:block;font-size:12px;color:#7c3aed;text-decoration:underline">📁 模型库 2</a>` : ''}
+                    </div>
+                `;
+                sourcesEl.insertAdjacentHTML("beforeend", quarkHtml);
+            } else if (items.length === 0) {
+                sourcesEl.innerHTML = '<div class="fm-empty" style="padding:10px">未找到下载源，请在设置中配置夸克链接</div>';
             }
         } catch (e) {
-            sourceContainer.innerHTML = `<div class="fm-empty" style="padding:10px">搜索失败: ${e.message}</div>`;
+            sourcesEl.innerHTML = `<div class="fm-empty" style="padding:10px">搜索失败: ${e.message}</div>`;
         }
     }
 
-    async _startDownload(url, modelName, modelType) {
+    // ---- 开始下载 ----
+    async _startDownload(url, name, type) {
         try {
-            const result = await apiPost("download", {
+            await apiPost("download", {
                 url,
-                model_name: modelName,
-                model_type: modelType,
+                model_name: name,
+                model_type: type,
                 quark_cookie: this.quarkCookie,
             });
-            showNotification(`开始下载: ${modelName}`);
+            showNotification(`开始下载: ${name}`);
             this._startPolling();
-            // 切换到下载 tab
             this.activeTab = "downloads";
-            this.panelEl.querySelectorAll(".fm-tab").forEach(t => t.classList.remove("active"));
-            this.panelEl.querySelector('[data-tab="downloads"]').classList.add("active");
+            this.overlay.querySelectorAll(".fm-tab").forEach(t => t.classList.remove("active"));
+            this.overlay.querySelector('[data-tab="downloads"]').classList.add("active");
             this._renderContent();
         } catch (e) {
             showNotification(`下载失败: ${e.message}`);
         }
     }
 
-    async _installPlugin(nodeName) {
-        // 构造 GitHub 搜索链接
+    // ---- 定位引用节点 ----
+    async _locateNode(name) {
+        try {
+            const workflow = await this.app.graph.serialize();
+            const result = await apiPost("locate", {
+                model_name: name,
+                workflow,
+            });
+            if (result.found) {
+                showNotification(`已找到引用节点: ${result.node_name || ''}`);
+            } else {
+                showNotification('未找到引用节点');
+            }
+        } catch (e) {
+            showNotification(`定位失败: ${e.message}`);
+        }
+    }
+
+    // ---- 浏览本地文件 ----
+    async _browseLocal(card, name, type) {
+        // 简单实现：触发文件选择
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = ".safetensors,.ckpt,.pt,.pth,.bin";
+        input.multiple = false;
+        input.onchange = async () => {
+            const file = input.files[0];
+            if (!file) return;
+            const path = file.name; // 浏览器安全限制，只能拿到文件名
+            try {
+                await apiPost("load-local", {
+                    file_path: path,
+                    model_name: name,
+                    model_type: type,
+                });
+                showNotification(`已加载: ${file.name}`);
+            } catch (e) {
+                showNotification(`加载失败: ${e.message}`);
+            }
+        };
+        input.click();
+    }
+
+    // ---- 搜索缺失节点插件 ----
+    _installPlugin(nodeName) {
         const query = encodeURIComponent(`comfyui ${nodeName}`);
-        const url = `https://github.com/search?q=${query}&type=repositories`;
-        window.open(url, "_blank");
+        window.open(`https://github.com/search?q=${query}&type=repositories`, "_blank");
     }
 
     // ---- 下载轮询 ----
@@ -1130,7 +991,7 @@ class FindModelsPanel {
                 if (this.activeTab === "downloads") {
                     this._renderDownloads();
                 }
-                // 检查是否有正在进行的下载
+                this._updateBadges();
                 const hasActive = Object.values(data).some(t => t.status === "downloading");
                 if (!hasActive) this._stopPolling();
             } catch {}
@@ -1144,7 +1005,23 @@ class FindModelsPanel {
         }
     }
 
-    // ---- 工具方法 ----
+    // ---- 辅助方法 ----
+    _modelTypeLabel(type) {
+        const labels = {
+            "checkpoints": "主模型",
+            "loras": "LoRA",
+            "vae": "VAE",
+            "text_encoders": "文本编码器",
+            "diffusion_models": "扩散模型",
+            "controlnet": "ControlNet",
+            "embedding": "Embedding",
+            "embeddings": "Embedding",
+            "upscale_models": "超分模型",
+            "clip_vision": "CLIP Vision",
+        };
+        return labels[type] || type || "模型";
+    }
+
     _esc(str) {
         const div = document.createElement("div");
         div.textContent = str || "";
@@ -1161,8 +1038,8 @@ class FindModelsPanel {
 // ============================================================
 app.registerExtension({
     name: "ComfyUI.FindModels",
-    async init() {
-        // 等待 app 就绪后初始化面板
+    async setup() {
+        // setup 阶段 DOM 已就绪
         const waitForApp = () => {
             if (window.app) {
                 new FindModelsPanel(app);
@@ -1173,3 +1050,15 @@ app.registerExtension({
         waitForApp();
     },
 });
+
+function showNotification(msg, duration = 2000) {
+    const notif = document.createElement("div");
+    notif.className = "fm-notification";
+    notif.textContent = msg;
+    document.body.appendChild(notif);
+    requestAnimationFrame(() => notif.classList.add("fm-notification-show"));
+    setTimeout(() => {
+        notif.classList.remove("fm-notification-show");
+        setTimeout(() => notif.remove(), 300);
+    }, duration);
+}
