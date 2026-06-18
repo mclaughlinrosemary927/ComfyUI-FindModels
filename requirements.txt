@@ -1,0 +1,3 @@
+# ComfyUI-FindModels requirements
+# No external dependencies beyond ComfyUI's standard library
+# aiohttp is included with ComfyUI

@@ -1,83 +1,174 @@
 # ComfyUI-FindModels
 
-自动识别并适配 ComfyUI 工作流中丢失的模型和节点，提供直链下载，并支持 GitHub 同步。
+🔍 **Automatically detect missing models in your ComfyUI workflows, find compatible alternatives, and get direct download links.**
 
-## ✨ 功能特性
+## Features
 
-- **缺失模型检测** — 扫描工作流 JSON，自动识别所有缺失的模型文件
-- **缺失节点检测** — 检测工作流中未安装的自定义节点
-- **直链下载** — 自动从 Civitai 搜索匹配模型并下载
-- **夸克网盘支持** — 配置夸克链接，快速获取模型直链
-- **本地模型加载** — 从本地磁盘浏览选择模型文件，复制/链接到正确目录
-- **定位引用节点** — 一键高亮工作流中引用该模型的节点
-- **模型名称复制** — 每个模型旁带复制按钮
-- **下载任务管理** — 实时显示下载进度、状态
-- **插件安装引导** — 缺失节点提供 GitHub 搜索链接，支持自动安装依赖
+- **🔍 Find Missing Models** — Scan any workflow JSON and instantly identify which models are not available locally
+- **🔄 Auto Match Models** — Automatically find locally available alternatives that match the same architecture and type
+- **⬇️ Direct Download Links** — Get direct download URLs from CivitAI, HuggingFace, and other sources for every missing model
+- **🌐 Frontend Integration** — Right-click canvas menu and toolbar button for one-click workflow scanning
+- **📡 REST API** — Full API for programmatic access to model checking, searching, and downloading
 
-## 📦 安装
+## Installation
+
+### Method 1: ComfyUI Manager (Recommended)
+
+Search for "ComfyUI-FindModels" in the ComfyUI Manager and click Install.
+
+### Method 2: Manual Installation
 
 ```bash
 cd ComfyUI/custom_nodes
-git clone https://github.com/your-username/ComfyUI-FindModels.git
+git clone https://github.com/AIExplorer-Studio/ComfyUI-FindModels.git
+cd ComfyUI-FindModels
+pip install -r requirements.txt
 ```
 
-重启 ComfyUI 即可使用。
+Restart ComfyUI.
 
-## 🚀 使用方法
+## Nodes
 
-1. 安装完成后，ComfyUI 工具栏会出现「查找缺失模型和节点」按钮
-2. 加载一个工作流（可能包含缺失的模型/节点）
-3. 点击侧边栏的「扫描」按钮
-4. 面板会显示缺失的模型和节点列表
-5. 对每个缺失模型，可以选择：
-   - **定位引用节点** — 高亮工作流中使用该模型的节点
-   - **加载本地模型** — 从本地文件系统选择已有的模型文件
-   - **查找下载来源** — 从 Civitai 搜索并下载
+### 🔍 Find Missing Models
 
-## 🎯 模型匹配规则
+Scans a workflow JSON and identifies all models that are referenced but not present locally.
 
-模型文件必须遵循 ComfyUI 官方路径和命名规范：
+**Inputs:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `workflow_json` | STRING | "" | Paste your workflow JSON, or use the "Capture Current Workflow" button |
+| `check_categories` | STRING | "all" | Comma-separated categories to check (e.g., "checkpoints,lora,vae") |
 
-| 类型 | 目录 | 扩展名 |
-|------|------|--------|
-| 主模型 (Checkpoints) | `models/checkpoints/` | `.safetensors`, `.ckpt`, `.pt` |
-| LoRA | `models/loras/` | `.safetensors`, `.ckpt`, `.pt` |
-| VAE | `models/vae/` | `.safetensors`, `.ckpt`, `.pt` |
-| CLIP Vision | `models/clip_vision/` | `.safetensors`, `.pt` |
-| ControlNet | `models/controlnet/` | `.safetensors`, `.pt` |
-| 超分模型 | `models/upscale_models/` | `.safetensors`, `.pt` |
-| Embeddings | `models/embeddings/` | `.safetensors`, `.pt` |
+**Outputs:**
+| Output | Type | Description |
+|--------|------|-------------|
+| `missing_models` | STRING | JSON list of missing models with details |
+| `all_models` | STRING | JSON list of all models found in workflow |
+| `summary` | STRING | Human-readable summary |
 
-## ⚙️ 设置
+### 🔄 Auto Match Models
 
-在面板的「设置」标签中可以配置：
+For each missing model, finds locally available alternatives matching the same architecture and type.
 
-- **夸克链接** — 夸克网盘中的模型库分享链接
-- **夸克直链登录态** — 用于解析夸克网盘直链的 Cookie（可选）
+**Inputs:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `missing_models_json` | STRING | "" | Connect from FindMissingModels output |
+| `max_suggestions` | INT | 5 | Maximum alternatives per missing model |
 
-## 🔧 技术架构
+**Outputs:**
+| Output | Type | Description |
+|--------|------|-------------|
+| `match_results` | STRING | JSON with match results and alternatives |
+| `summary` | STRING | Human-readable match summary |
 
+### ⬇️ Get Model Download Links
+
+Generates direct download links for missing models from CivitAI, HuggingFace, and other sources.
+
+**Inputs:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `missing_models_json` | STRING | "" | Connect from FindMissingModels output |
+
+**Outputs:**
+| Output | Type | Description |
+|--------|------|-------------|
+| `download_links` | STRING | JSON with download links |
+| `summary` | STRING | Human-readable links summary |
+
+## Frontend Usage
+
+1. **Right-click canvas** → "🔍 Find Missing Models" — Scans the current workflow
+2. **Right-click canvas** → "📋 Export Model List" — Exports all model references
+3. **Toolbar button** — Quick access "🔍 FindModels" button
+4. **FindMissingModels node** → "📋 Capture Current Workflow" button — Auto-fills the workflow JSON
+
+## API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/findmodels/check?category=&name=` | Check if a model exists |
+| GET | `/findmodels/list?category=` | List models in a category |
+| GET | `/findmodels/search?q=` | Search models across categories |
+| GET | `/findmodels/alternatives?category=&name=` | Find alternatives for a missing model |
+| GET | `/findmodels/download_links?category=&name=` | Get download links |
+| POST | `/findmodels/scan_workflow` | Scan a workflow for missing models |
+
+### Example API Usage
+
+```bash
+# Check if a model exists
+curl "http://localhost:8188/findmodels/check?category=checkpoints&name=v1-5-pruned-emaonly.safetensors"
+
+# Search for models
+curl "http://localhost:8188/findmodels/search?q=sdxl"
+
+# Scan a workflow
+curl -X POST "http://localhost:8188/findmodels/scan_workflow" \
+  -H "Content-Type: application/json" \
+  -d '{"workflow": {...}}'
 ```
-ComfyUI-FindModels/
-├── __init__.py          # 插件入口
-├── main.py              # 后端逻辑 (ComfyExtension)
-├── web/
-│   └── FindModels.js    # 前端面板 (ComfyUI JS Extension)
-├── .flake8
-└── README.md
-```
 
-- **后端**：基于 ComfyUI 的 `ComfyExtension` API，注册 REST 路由处理模型扫描、下载、文件浏览等
-- **前端**：基于 ComfyUI 的 JS Extension API，创建侧边栏面板 UI
-- **通信**：通过 `aiohttp` 路由实现前后端 JSON API 通信
+## Supported Model Categories
 
-## 📝 开发计划
+- Checkpoints (SD1.5, SDXL, SD3, Flux, etc.)
+- VAE
+- LoRA
+- ControlNet
+- UNet / Diffusion Models
+- CLIP / Text Encoders
+- CLIP Vision
+- Embeddings
+- Upscale Models
+- IP-Adapter
+- InstantID / InsightFace
+- PuLID / PhotoMaker
+- Hypernetworks
+- Style Models
+- GLIGEN
+- SAM
+- Depth Models
+- And more...
 
-- [ ] 支持 HuggingFace 模型搜索
-- [ ] 支持模型版本管理
-- [ ] 支持批量下载
-- [ ] 多语言界面支持
+## Architecture Detection
 
-## 📄 License
+Automatically detects model architecture from filenames:
+- **SD 1.5** — v1-5, sd1.5, stable-diffusion-1
+- **SDXL** — sdxl, xl, stable-diffusion-xl
+- **SD3** — sd3, stable-diffusion-3
+- **Flux** — flux, flux1, flux-dev, flux-schnell
+- **CogVideoX** — cogvideo
+- **Hunyuan** — hunyuan-video
+- **SVD** — stable-video-diffusion
+- And more...
+
+## How Auto-Matching Works
+
+The auto-match algorithm scores local models based on:
+
+1. **Architecture match** (50 pts) — Same SD version / Flux / etc.
+2. **Type match** (30 pts) — Same sub-type (inpainting, depth, etc.)
+3. **Name similarity** (5 pts/token) — Overlapping tokens in filename
+4. **Format preference** (+3 pts) — Prefers safetensors over ckpt
+5. **Precision preference** (+1 pt) — Prefers fp16 variants
+
+## Requirements
+
+- ComfyUI >= 0.2.0
+- Python >= 3.9
+- aiohttp (included with ComfyUI)
+
+## License
 
 MIT License
+
+## Contributing
+
+Contributions welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
