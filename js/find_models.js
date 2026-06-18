@@ -1,22 +1,31 @@
 /**
  * ComfyUI-FindModels: Frontend extension
  *
- * Uses ComfyUI's official extension API:
- *   - actionBarButtons: adds "查找模型" button to the top action bar (same row as Queue Prompt)
- *   - commands + menuCommands: adds menu entries
- *   - getCanvasMenuItems: right-click canvas menu
- *
- * Features:
- *   - Auto-captures the current workflow and scans for missing models
- *   - Displays results in a modal with download buttons
- *   - Downloads models and auto-sorts them into the correct model folder
- *   - Search sources: 夸克网盘, CivitAI, HuggingFace
+ * 顶部工具栏显示 "查找模型" 按钮（与 Queue Prompt 同行）
+ * 搜索来源：夸克网盘（含固定资源链接）+ CivitAI + HuggingFace
+ * 下载后自动放入对应模型文件夹
  */
 
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
 const EXTENSION_NAME = "ComfyUI-FindModels";
+
+// ──────────────────────────────────────────────
+// 夸克网盘固定资源链接
+// ──────────────────────────────────────────────
+const QUARK_FIXED_LINKS = [
+    {
+        url: "https://pan.quark.cn/s/fb913d649b18",
+        label: "夸克网盘 · 模型资源①",
+        description: "常用模型合集（Checkpoints / VAE / LoRA）",
+    },
+    {
+        url: "https://pan.quark.cn/s/4680ac8665162",
+        label: "夸克网盘 · 模型资源②",
+        description: "扩展模型合集（ControlNet / IP-Adapter / Upscale 等）",
+    },
+];
 
 // ──────────────────────────────────────────────
 // UI Helpers
@@ -29,7 +38,6 @@ function escapeHtml(text) {
 }
 
 function createModal(title, content) {
-    // Remove existing modal if any
     const existing = document.getElementById("findmodels-overlay");
     if (existing) existing.remove();
 
@@ -44,7 +52,7 @@ function createModal(title, content) {
     const modal = document.createElement("div");
     modal.style.cssText = `
         background: #1e1e2e; color: #cdd6f4; border-radius: 12px;
-        padding: 24px; max-width: 900px; width: 90%; max-height: 85vh;
+        padding: 24px; max-width: 920px; width: 92%; max-height: 85vh;
         overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     `;
@@ -74,14 +82,14 @@ function createModal(title, content) {
 }
 
 // ──────────────────────────────────────────────
-// Download with auto-sort
+// 下载模型并自动放入对应文件夹
 // ──────────────────────────────────────────────
 
 async function downloadAndSortModel(modelName, category, downloadUrl, sourceType) {
     const safeId = modelName.replace(/[^a-zA-Z0-9_-]/g, "_");
     const statusEl = document.getElementById(`dl-status-${safeId}`);
     if (statusEl) {
-        statusEl.innerHTML = `<span style="color: #f9e2af;">⬇️ 正在从 ${escapeHtml(sourceType)} 下载...</span>`;
+        statusEl.innerHTML = `<span style="color: #f9e2af;">⬇️ 正在从 ${escapeHtml(sourceType)} 下载，将自动放入 models/${escapeHtml(category)}/ ...</span>`;
     }
 
     try {
@@ -99,7 +107,7 @@ async function downloadAndSortModel(modelName, category, downloadUrl, sourceType
 
         if (result.success) {
             if (statusEl) {
-                statusEl.innerHTML = `<span style="color: #a6e3a1;">✅ 已保存到: ${escapeHtml(result.saved_path)}</span>`;
+                statusEl.innerHTML = `<span style="color: #a6e3a1;">✅ 已下载并保存到: ${escapeHtml(result.saved_path)}</span>`;
             }
             const card = document.getElementById(`model-card-${safeId}`);
             if (card) card.style.borderLeftColor = "#a6e3a1";
@@ -115,11 +123,11 @@ async function downloadAndSortModel(modelName, category, downloadUrl, sourceType
     }
 }
 
-// Expose globally for onclick handlers
+// 暴露给 onclick 调用
 window._findModelsDownload = downloadAndSortModel;
 
 // ──────────────────────────────────────────────
-// Workflow Analysis
+// 工作流扫描
 // ──────────────────────────────────────────────
 
 async function captureCurrentWorkflow() {
@@ -147,10 +155,7 @@ async function runFindMissingModels() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ workflow: JSON.parse(workflowJson) }),
             });
-
-            if (resp.ok) {
-                scanResult = await resp.json();
-            }
+            if (resp.ok) scanResult = await resp.json();
         } catch (e) {
             console.warn("[FindModels] Server scan failed:", e);
         }
@@ -160,10 +165,8 @@ async function runFindMissingModels() {
         if (scanResult) {
             displayResults(scanResult);
         } else {
-            const parsed = JSON.parse(workflowJson);
-            await runLocalAnalysis(parsed);
+            await runLocalAnalysis(JSON.parse(workflowJson));
         }
-
     } catch (error) {
         if (loadingModal) loadingModal.close();
         console.error("[FindModels] Error:", error);
@@ -183,7 +186,6 @@ async function runLocalAnalysis(workflow) {
             if (resp.ok) {
                 const data = await resp.json();
                 model.status = data.exists ? "found" : "missing";
-                model.local_path = data.local_path || null;
             } else {
                 model.status = "missing";
             }
@@ -234,61 +236,54 @@ function extractModelsFromWorkflow(workflow) {
     for (const node of nodes) {
         const nodeType = node.type || "";
         const widgets = node.widgets_values || [];
-
         for (const p of patterns) {
             if (nodeType === p.type || nodeType.includes(p.type)) {
                 const idx = node.inputs?.findIndex(i => i.name === p.input);
                 if (idx !== undefined && idx >= 0 && widgets[idx]) {
                     models.push({
-                        node_id: node.id,
-                        node_type: nodeType,
-                        input_name: p.input,
-                        model_name: widgets[idx],
+                        node_id: node.id, node_type: nodeType,
+                        input_name: p.input, model_name: widgets[idx],
                         category: p.category,
                     });
                 }
             }
         }
     }
-
     return models;
 }
 
 // ──────────────────────────────────────────────
-// Results Display
+// 结果展示
 // ──────────────────────────────────────────────
 
 function renderDownloadButtons(modelName, category, links) {
     const safeId = modelName.replace(/[^a-zA-Z0-9_-]/g, "_");
     let html = `<div style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px;">`;
 
+    // 直达下载按钮（直接下载+自动归类到对应文件夹）
     const directLinks = links.filter(l => l.type === "direct");
     for (const link of directLinks) {
         const btnColor =
+            link.source === "夸克网盘" ? "#89dceb" :
             link.source === "CivitAI" ? "#a78bfa" :
-            link.source === "HuggingFace" ? "#f38ba8" :
-            link.source === "夸克网盘" ? "#89dceb" : "#89b4fa";
-        const escapedUrl = escapeHtml(link.url);
-        const escapedSource = escapeHtml(link.source);
-        const escapedDesc = escapeHtml(link.description);
+            link.source === "HuggingFace" ? "#f38ba8" : "#89b4fa";
         html += `
-            <button onclick="window._findModelsDownload('${escapeHtml(modelName)}', '${escapeHtml(category)}', '${escapedUrl}', '${escapedSource}')"
+            <button onclick="window._findModelsDownload('${escapeHtml(modelName)}', '${escapeHtml(category)}', '${escapeHtml(link.url)}', '${escapeHtml(link.source)}')"
                     style="background: ${btnColor}; color: #1e1e2e; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500;">
-                ⬇️ ${escapedSource}: ${escapedDesc}
+                ⬇️ ${escapeHtml(link.source)}: ${escapeHtml(link.description)}
             </button>
         `;
     }
 
+    // 搜索链接（夸克搜索直达 + CivitAI + HuggingFace）
     const searchLinks = links.filter(l => l.type === "search");
     for (const link of searchLinks) {
-        const icon =
-            link.source === "CivitAI" ? "🔍" :
-            link.source === "HuggingFace" ? "🔍" :
-            link.source === "夸克网盘" ? "☁️" : "🔍";
+        const icon = link.source === "夸克网盘" ? "☁️" : "🔍";
+        const color = link.source === "夸克网盘" ? "#89dceb" : "#cdd6f4";
         html += `
             <a href="${escapeHtml(link.url)}" target="_blank"
-               style="background: #45475a; color: #cdd6f4; text-decoration: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; display: inline-flex; align-items: center; gap: 4px;">
-                ${icon} ${escapeHtml(link.source)}
+               style="background: #45475a; color: ${color}; text-decoration: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; display: inline-flex; align-items: center; gap: 4px;">
+                ${icon} ${escapeHtml(link.source)}搜索直达
             </a>
         `;
     }
@@ -297,8 +292,36 @@ function renderDownloadButtons(modelName, category, links) {
     return html;
 }
 
+function renderQuarkFixedLinks() {
+    let html = `
+        <div style="margin-bottom: 16px; padding: 12px; background: #1e3a5f; border-radius: 8px; border-left: 3px solid #89dceb;">
+            <div style="font-weight: bold; color: #89dceb; margin-bottom: 8px;">☁️ 夸克网盘资源直达</div>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+    `;
+    for (const link of QUARK_FIXED_LINKS) {
+        html += `
+            <a href="${escapeHtml(link.url)}" target="_blank"
+               style="background: #89dceb; color: #1e1e2e; text-decoration: none; padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 500; display: inline-flex; align-items: center; gap: 4px;">
+                ☁️ ${escapeHtml(link.label)}
+            </a>
+        `;
+    }
+    html += `
+            </div>
+            <div style="color: #a6adc8; font-size: 12px; margin-top: 6px;">
+    `;
+    for (const link of QUARK_FIXED_LINKS) {
+        html += `<div>${escapeHtml(link.description)} — ${escapeHtml(link.url)}</div>`;
+    }
+    html += `
+            </div>
+        </div>
+    `;
+    return html;
+}
+
 function displayResults(data) {
-    const { total, found_count, missing_count, missing, found } = data;
+    const { missing, found } = data;
     const allModels = [...(found || []), ...(missing || [])];
     displayResultsFromModels(allModels, missing || []);
 }
@@ -317,6 +340,9 @@ function displayResultsFromModels(allModels, missing) {
         </div>
     `;
 
+    // 总是显示夸克网盘固定资源链接
+    html += renderQuarkFixedLinks();
+
     if (missing.length === 0) {
         html += `<div style="text-align: center; padding: 20px; color: #a6e3a1;">🎉 所有模型都已就绪！</div>`;
     } else {
@@ -334,13 +360,13 @@ function displayResultsFromModels(allModels, missing) {
                     <div>
                         <div style="font-weight: bold; color: #f38ba8;">❌ ${escapeHtml(m.model_name)}</div>
                         <div style="color: #a6adc8; font-size: 12px; margin-top: 4px;">
-                            📁 保存到: <code style="background: #45475a; padding: 1px 4px; border-radius: 3px;">${escapeHtml(targetFolder)}</code> |
+                            📁 下载后自动放入: <code style="background: #45475a; padding: 1px 4px; border-radius: 3px;">${escapeHtml(targetFolder)}</code> |
                             分类: ${escapeHtml(category)}${arch ? ` | 架构: ${escapeHtml(arch)}` : ""}${mtype ? ` | 类型: ${escapeHtml(mtype)}` : ""}
                         </div>
                     </div>
                     ${links.length > 0 ? renderDownloadButtons(m.model_name, category, links) : `
                         <div style="margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap;">
-                            <a href="https://pan.quark.cn/search?q=${encodeURIComponent(m.model_name)}" target="_blank" style="background: #45475a; color: #89dceb; text-decoration: none; padding: 4px 10px; border-radius: 4px; font-size: 12px;">☁️ 夸克网盘</a>
+                            <a href="https://pan.quark.cn/search?q=${encodeURIComponent(m.model_name)}" target="_blank" style="background: #89dceb; color: #1e1e2e; text-decoration: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 500;">☁️ 夸克搜索直达</a>
                             <a href="https://civitai.com/models?query=${encodeURIComponent(m.model_name)}" target="_blank" style="background: #45475a; color: #cdd6f4; text-decoration: none; padding: 4px 10px; border-radius: 4px; font-size: 12px;">🔍 CivitAI</a>
                             <a href="https://huggingface.co/models?search=${encodeURIComponent(m.model_name)}" target="_blank" style="background: #45475a; color: #cdd6f4; text-decoration: none; padding: 4px 10px; border-radius: 4px; font-size: 12px;">🔍 HuggingFace</a>
                         </div>
@@ -356,7 +382,7 @@ function displayResultsFromModels(allModels, missing) {
 }
 
 // ──────────────────────────────────────────────
-// Export model list
+// 导出模型列表
 // ──────────────────────────────────────────────
 
 async function exportModelList() {
@@ -383,15 +409,75 @@ async function exportModelList() {
 }
 
 // ──────────────────────────────────────────────
-// Extension Registration — using official ComfyUI APIs
+// DOM fallback：如果 actionBarButtons API 不生效，
+// 手动在顶部工具栏注入按钮
+// ──────────────────────────────────────────────
+
+function injectToolbarButton() {
+    if (document.getElementById("findmodels-toolbar-btn")) return true;
+
+    // 尝试多种 ComfyUI 工具栏选择器
+    const toolbarSelectors = [
+        ".comfyui-action-bar",
+        "#comfyui-action-bar",
+        ".action-bar",
+        "#action-bar",
+        // 新版 PrimeVue 顶部栏
+        ".p-toolbar",
+        "[class*='action']",
+        "[class*='toolbar']",
+        // 旧版侧边菜单
+        ".comfy-menu",
+        "#comfy-menu",
+    ];
+
+    let toolbar = null;
+    for (const sel of toolbarSelectors) {
+        toolbar = document.querySelector(sel);
+        if (toolbar) break;
+    }
+
+    if (!toolbar) return false;
+
+    const btn = document.createElement("button");
+    btn.id = "findmodels-toolbar-btn";
+    btn.innerHTML = "🔍 查找模型";
+    btn.title = "扫描工作流中缺失的模型";
+    btn.style.cssText = `
+        background: #45475a; color: #cdd6f4; border: 1px solid #585b70;
+        padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;
+        margin-left: 6px; white-space: nowrap; font-weight: 500;
+        transition: background 0.15s, border-color 0.15s;
+        display: inline-flex; align-items: center; gap: 4px;
+    `;
+    btn.onmouseenter = () => { btn.style.background = "#585b70"; btn.style.borderColor = "#89dceb"; };
+    btn.onmouseleave = () => { btn.style.background = "#45475a"; btn.style.borderColor = "#585b70"; };
+    btn.onclick = () => runFindMissingModels();
+
+    // 试图找到 Queue Prompt 按钮，插入到旁边
+    const queueBtn = toolbar.querySelector("#queue-button")
+        || toolbar.querySelector("[class*='queue']")
+        || toolbar.querySelector("button");
+
+    if (queueBtn && queueBtn.nextSibling) {
+        toolbar.insertBefore(btn, queueBtn.nextSibling);
+    } else {
+        toolbar.appendChild(btn);
+    }
+
+    console.log("[FindModels] Toolbar button injected via DOM fallback");
+    return true;
+}
+
+// ──────────────────────────────────────────────
+// Extension Registration
 // ──────────────────────────────────────────────
 
 const extension = {
     name: EXTENSION_NAME,
 
     /**
-     * Add "查找模型" button to the action bar (same row as Queue Prompt).
-     * This is the official ComfyUI API for action bar buttons.
+     * 官方 API: 在顶部工具栏添加 "查找模型" 按钮
      */
     actionBarButtons: [
         {
@@ -402,9 +488,6 @@ const extension = {
         },
     ],
 
-    /**
-     * Register commands that can be triggered from menus and keybindings.
-     */
     commands: [
         {
             id: "comfyui-findmodels.scan",
@@ -420,9 +503,6 @@ const extension = {
         },
     ],
 
-    /**
-     * Add menu entries in the top menu bar.
-     */
     menuCommands: [
         {
             path: ["查找模型"],
@@ -430,34 +510,20 @@ const extension = {
         },
     ],
 
-    /**
-     * Add right-click canvas menu items (legacy support).
-     */
     getCanvasMenuItems(canvas) {
         return [
-            {
-                content: "🔍 查找缺失模型",
-                callback: () => runFindMissingModels(),
-            },
-            {
-                content: "📋 导出模型列表",
-                callback: () => exportModelList(),
-            },
+            { content: "🔍 查找缺失模型", callback: () => runFindMissingModels() },
+            { content: "📋 导出模型列表", callback: () => exportModelList() },
         ];
     },
 
-    /**
-     * Add "Capture Current Workflow" button to FindMissingModels node.
-     */
     beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData.name === "FindMissingModels") {
             const origOnNodeCreated = nodeType.prototype.onNodeCreated;
             nodeType.prototype.onNodeCreated = function () {
                 origOnNodeCreated?.apply(this, arguments);
                 this.addWidget(
-                    "button",
-                    "📋 捕获当前工作流",
-                    null,
+                    "button", "📋 捕获当前工作流", null,
                     async () => {
                         try {
                             const workflow = await captureCurrentWorkflow();
@@ -474,6 +540,34 @@ const extension = {
                 );
             };
         }
+    },
+
+    /**
+     * setup: DOM fallback 确保按钮显示
+     */
+    async setup() {
+        // 等待 DOM 就绪后尝试注入
+        const tryInject = () => {
+            if (!injectToolbarButton()) {
+                setTimeout(tryInject, 500);
+            }
+        };
+
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", tryInject);
+        } else {
+            tryInject();
+        }
+
+        // 15 秒后停止重试
+        setTimeout(() => {
+            const btn = document.getElementById("findmodels-toolbar-btn");
+            if (!btn) {
+                console.warn("[FindModels] Could not inject toolbar button after 15s — relying on actionBarButtons API");
+            }
+        }, 15000);
+
+        console.log("[FindModels] Extension loaded — 查找模型");
     },
 };
 

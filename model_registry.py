@@ -285,12 +285,36 @@ MODEL_SOURCES = {
 }
 
 
+# 夸克网盘固定资源链接
+QUARK_FIXED_LINKS = [
+    {
+        "url": "https://pan.quark.cn/s/fb913d649b18",
+        "label": "夸克网盘 · 模型资源①",
+        "description": "常用模型合集（Checkpoints / VAE / LoRA）",
+    },
+    {
+        "url": "https://pan.quark.cn/s/4680ac8665162",
+        "label": "夸克网盘 · 模型资源②",
+        "description": "扩展模型合集（ControlNet / IP-Adapter / Upscale 等）",
+    },
+]
+
+
 def build_download_links(model_name: str, category: str, arch: str = None) -> list:
     """Build direct download link suggestions for a missing model."""
     links = []
     name_clean = model_name.replace(".safetensors", "").replace(".ckpt", "").replace(".pt", "").replace(".bin", "")
 
-    # 夸克网盘搜索链接（放在最前面，国内用户优先）
+    # 夸克网盘固定资源直达链接（最优先）
+    for ql in QUARK_FIXED_LINKS:
+        links.append({
+            "source": "夸克网盘",
+            "url": ql["url"],
+            "type": "direct",
+            "description": ql["label"],
+        })
+
+    # 夸克网盘搜索直达
     quark_search = f"https://pan.quark.cn/search?q={name_clean}"
     links.append({
         "source": "夸克网盘",
