@@ -9,7 +9,7 @@ import aiohttp
 import asyncio
 from pathlib import Path
 from server import PromptServer
-from comfy_api.latest import ComfyExtension
+from aiohttp import web
 import folder_paths
 
 logger = logging.getLogger(__name__)
@@ -56,20 +56,12 @@ MODEL_DOWNLOAD_SOURCES = {
 }
 
 
-class FindModelsExtension(ComfyExtension):
+class FindModelsExtension:
     """ComfyUI 扩展：查找缺失模型和节点"""
 
     def __init__(self):
         self.download_tasks: dict = {}  # task_id -> task_info
         self._task_counter = 0
-
-    @classmethod
-    def get_extension_id(cls) -> str:
-        return "ComfyUI-FindModels"
-
-    @classmethod
-    def get_display_name(cls) -> str:
-        return "FindModels - 查找缺失模型和节点"
 
     async def _scan_workflow_missing(self, workflow_data: dict) -> dict:
         """扫描工作流 JSON，找出缺失的模型和节点"""
@@ -631,33 +623,13 @@ class FindModelsExtension(ComfyExtension):
             return web.json_response(types)
 
 
-# 需要在 setup 中导入 web
-from aiohttp import web
-
-# 创建全局扩展实例
+# 全局扩展实例
 extension = FindModelsExtension()
 
-# ComfyUI 加载扩展
-def init():
-    """初始化扩展（兼容旧版加载方式）"""
-    try:
-        import comfy.utils
-        ext = comfy.utils.get_extension_by_id("ComfyUI-FindModels")
-        if ext is None:
-            # 如果新版 API 不可用，手动注册路由
-            setup_routes()
-    except Exception:
-        setup_routes()
-    return True
 
-
-def setup_routes():
-    """手动注册 API 路由（fallback）"""
+def register_routes():
+    """注册 API 路由（由 __init__.py 在导入时调用）"""
     try:
         extension.setup()
     except Exception as e:
         logger.error(f"注册路由失败: {e}")
-
-
-# 兼容旧版 ComfyUI 的节点注册
-WEB_DIRECTORY = "./web"
