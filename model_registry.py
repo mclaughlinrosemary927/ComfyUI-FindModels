@@ -277,6 +277,11 @@ MODEL_SOURCES = {
         "search_url": "https://huggingface.co/models?search={query}",
         "direct_download": "https://huggingface.co/{repo}/resolve/main/{filename}",
     },
+    "quark": {
+        "base_url": "https://pan.quark.cn",
+        "search_url": "https://pan.quark.cn/search?q={query}",
+        "direct_download": None,  # Quark requires browser interaction
+    },
 }
 
 
@@ -284,6 +289,15 @@ def build_download_links(model_name: str, category: str, arch: str = None) -> li
     """Build direct download link suggestions for a missing model."""
     links = []
     name_clean = model_name.replace(".safetensors", "").replace(".ckpt", "").replace(".pt", "").replace(".bin", "")
+
+    # 夸克网盘搜索链接（放在最前面，国内用户优先）
+    quark_search = f"https://pan.quark.cn/search?q={name_clean}"
+    links.append({
+        "source": "夸克网盘",
+        "url": quark_search,
+        "type": "search",
+        "description": f"在夸克网盘搜索 '{name_clean}'",
+    })
 
     # CivitAI search link
     civitai_search = f"https://civitai.com/models?query={name_clean}"
@@ -599,6 +613,96 @@ def parse_workflow_models(workflow: dict) -> list:
                         })
 
     return models
+
+
+def get_model_folder_path(category: str) -> Optional[str]:
+    """Get the absolute filesystem path for a model category's folder.
+    Returns the first existing folder path, or creates one if none exist."""
+    if category not in MODEL_CATEGORIES:
+        return None
+
+    cat_info = MODEL_CATEGORIES[category]
+
+    # Try folder_paths first (respects extra_paths config)
+    for folder_name in cat_info["folder_names"]:
+        try:
+            paths = folder_paths.get_folder_paths(folder_name)
+            for p in paths:
+                if os.path.isdir(p):
+                    return p
+        except Exception:
+            pass
+
+    # Fallback: default ComfyUI models directory
+    try:
+        base = folder_paths.base_path
+    except Exception:
+        base = os.getcwd()
+
+    for folder_name in cat_info["folder_names"]:
+        model_dir = os.path.join(base, "models", folder_name)
+        if os.path.isdir(model_dir):
+            return model_dir
+        # Try creating it
+        try:
+            os.makedirs(model_dir, exist_ok=True)
+            return model_dir
+        except Exception:
+            continue
+
+    return None
+
+
+def download_model_to_category(download_url: str, model_name: str, category: str) -> dict:
+    """Download a model file and save it to the correct category folder.
+    Returns dict with success status and saved path or error."""
+    import urllib.request
+    import shutil
+    import tempfile
+
+    target_dir = get_model_folder_path(category)
+    if not target_dir:
+        return {"success": False, "error": f"Cannot find or create folder for category '{category}'"}
+
+    # Ensure filename is safe
+    safe_name = os.path.basename(model_name.replace("\\", "/"))
+    if not safe_name:
+        safe_name = "model.safetensors"
+    target_path = os.path.join(target_dir, safe_name)
+
+    # Don't overwrite existing files
+    if os.path.exists(target_path):
+        return {"success": True, "saved_path": target_path, "message": "File already exists"}
+
+    try:
+        # Download to temp file first, then move
+        tmp_dir = tempfile.gettempdir()
+        tmp_path = os.path.join(tmp_dir, f"findmodels_{safe_name}")
+
+        urllib.request.urlretrieve(download_url, tmp_path)
+
+        # Verify it's a real file (not an error page)
+        file_size = os.path.getsize(tmp_path)
+        if file_size < 1024:  # Less than 1KB is probably an error
+            os.remove(tmp_path)
+            return {"success": False, "error": "Downloaded file too small, possibly an error page"}
+
+        # Move to target
+        shutil.move(tmp_path, target_path)
+
+        return {
+            "success": True,
+            "saved_path": target_path,
+            "size_mb": round(file_size / (1024 * 1024), 2),
+        }
+    except Exception as e:
+        # Clean up temp file on error
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+        return {"success": False, "error": str(e)}
 
 
 def _looks_like_model(value: str, input_name: str = "", node_type: str = "") -> bool:

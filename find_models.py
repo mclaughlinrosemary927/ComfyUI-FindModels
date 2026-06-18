@@ -263,7 +263,7 @@ class GetModelDownloadLinks:
     )
     FUNCTION = "get_links"
     CATEGORY = "🧭 FindModels"
-    DESCRIPTION = "Get direct download links for missing models from CivitAI, HuggingFace, and other sources."
+    DESCRIPTION = "Get direct download links for missing models from CivitAI, HuggingFace, 夸克网盘, and other sources."
 
     def get_links(self, missing_models_json: str):
         if not missing_models_json or not missing_models_json.strip():

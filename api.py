@@ -15,6 +15,8 @@ from .model_registry import (
     build_download_links,
     detect_architecture,
     detect_model_type,
+    download_model_to_category,
+    get_model_folder_path,
     MODEL_CATEGORIES,
 )
 
@@ -133,6 +135,32 @@ async def get_download_links(request):
         "architecture": arch,
         "links": links,
     })
+
+
+@route("POST", "/findmodels/download_and_sort")
+async def download_and_sort(request):
+    """Download a model file and automatically save it to the correct category folder."""
+    body = await request.json()
+    download_url = body.get("download_url", "")
+    model_name = body.get("model_name", "")
+    category = body.get("category", "")
+
+    if not download_url or not model_name or not category:
+        return web.json_response({"success": False, "error": "Missing download_url, model_name, or category"}, status=400)
+
+    result = download_model_to_category(download_url, model_name, category)
+    return web.json_response(result)
+
+
+@route("GET", "/findmodels/category_path")
+async def get_category_path(request):
+    """Get the filesystem path for a model category folder."""
+    category = request.query.get("category", "")
+    if not category:
+        return web.json_response({"error": "Missing category"}, status=400)
+
+    path = get_model_folder_path(category)
+    return web.json_response({"category": category, "path": path})
 
 
 @route("POST", "/findmodels/scan_workflow")

@@ -1,14 +1,15 @@
 # ComfyUI-FindModels
 
-🔍 **Automatically detect missing models in your ComfyUI workflows, find compatible alternatives, and get direct download links.**
+🔍 **Automatically detect missing models in your ComfyUI workflows, find compatible alternatives, get direct download links, and auto-sort models to the correct folders.**
 
 ## Features
 
 - **🔍 Find Missing Models** — Scan any workflow JSON and instantly identify which models are not available locally
 - **🔄 Auto Match Models** — Automatically find locally available alternatives that match the same architecture and type
-- **⬇️ Direct Download Links** — Get direct download URLs from CivitAI, HuggingFace, and other sources for every missing model
-- **🌐 Frontend Integration** — Right-click canvas menu and toolbar button for one-click workflow scanning
-- **📡 REST API** — Full API for programmatic access to model checking, searching, and downloading
+- **⬇️ Direct Download + Auto Sort** — Download models and automatically place them in the correct model folder (e.g., `models/checkpoints/`, `models/lora/`)
+- **☁️ 夸克网盘 Search** — Search for models on Quark Cloud Drive (夸克网盘), optimized for users in China
+- **🌐 Frontend Integration** — Button in the action bar (same row as Queue Prompt) + right-click canvas menu
+- **📡 REST API** — Full API for programmatic access to model checking, searching, downloading, and auto-sorting
 
 ## Installation
 
@@ -64,7 +65,7 @@ For each missing model, finds locally available alternatives matching the same a
 
 ### ⬇️ Get Model Download Links
 
-Generates direct download links for missing models from CivitAI, HuggingFace, and other sources.
+Generates direct download links for missing models from CivitAI, HuggingFace, 夸克网盘, and other sources.
 
 **Inputs:**
 | Parameter | Type | Default | Description |
@@ -79,10 +80,11 @@ Generates direct download links for missing models from CivitAI, HuggingFace, an
 
 ## Frontend Usage
 
-1. **Right-click canvas** → "🔍 Find Missing Models" — Scans the current workflow
-2. **Right-click canvas** → "📋 Export Model List" — Exports all model references
-3. **Toolbar button** — Quick access "🔍 FindModels" button
+1. **🔍 FindModels button** — Located in the action bar, same row as Queue Prompt. One-click scan.
+2. **Right-click canvas** → "🔍 Find Missing Models" — Alternative scan trigger
+3. **Right-click canvas** → "📋 Export Model List" — Export all model references
 4. **FindMissingModels node** → "📋 Capture Current Workflow" button — Auto-fills the workflow JSON
+5. **⬇️ Download & Auto-Sort** — Click download buttons in the results modal; models are automatically saved to the correct `models/<category>/` folder
 
 ## API Endpoints
 
@@ -92,7 +94,9 @@ Generates direct download links for missing models from CivitAI, HuggingFace, an
 | GET | `/findmodels/list?category=` | List models in a category |
 | GET | `/findmodels/search?q=` | Search models across categories |
 | GET | `/findmodels/alternatives?category=&name=` | Find alternatives for a missing model |
-| GET | `/findmodels/download_links?category=&name=` | Get download links |
+| GET | `/findmodels/download_links?category=&name=` | Get download links (CivitAI, HuggingFace, 夸克网盘) |
+| POST | `/findmodels/download_and_sort` | Download model and auto-sort to correct folder |
+| GET | `/findmodels/category_path?category=` | Get filesystem path for a model category |
 | POST | `/findmodels/scan_workflow` | Scan a workflow for missing models |
 
 ### Example API Usage
@@ -104,11 +108,37 @@ curl "http://localhost:8188/findmodels/check?category=checkpoints&name=v1-5-prun
 # Search for models
 curl "http://localhost:8188/findmodels/search?q=sdxl"
 
+# Download and auto-sort a model
+curl -X POST "http://localhost:8188/findmodels/download_and_sort" \
+  -H "Content-Type: application/json" \
+  -d '{"model_name": "sdxl_vae.safetensors", "category": "vae", "download_url": "https://huggingface.co/stabilityai/sdxl-vae/resolve/main/sdxl_vae.safetensors"}'
+
 # Scan a workflow
 curl -X POST "http://localhost:8188/findmodels/scan_workflow" \
   -H "Content-Type: application/json" \
   -d '{"workflow": {...}}'
 ```
+
+## Download Sources
+
+| Source | Type | Description |
+|--------|------|-------------|
+| ☁️ **夸克网盘** | Search | Search models on Quark Cloud Drive (国内用户优先) |
+| 🔍 **CivitAI** | Search + Direct | Search and direct download from CivitAI |
+| 🤗 **HuggingFace** | Search + Direct | Search and direct download from HuggingFace |
+
+## Auto-Sort Feature
+
+When you click a download button in the results modal, the model file is:
+
+1. **Downloaded** from the source URL
+2. **Automatically saved** to the correct ComfyUI model folder:
+   - Checkpoints → `models/checkpoints/`
+   - LoRA → `models/loras/`
+   - VAE → `models/vae/`
+   - ControlNet → `models/controlnet/`
+   - And all other categories...
+3. **Verified** for file integrity (rejects files < 1KB that are likely error pages)
 
 ## Supported Model Categories
 
