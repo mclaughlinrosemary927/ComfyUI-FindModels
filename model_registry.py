@@ -679,6 +679,7 @@ def get_model_folder_path(category: str) -> Optional[str]:
 
 def download_model_to_category(download_url: str, model_name: str, category: str) -> dict:
     """Download a model file and save it to the correct category folder.
+    Handles direct URLs, HuggingFace resolve links, and falls back gracefully.
     Returns dict with success status and saved path or error."""
     import urllib.request
     import shutil
@@ -686,7 +687,7 @@ def download_model_to_category(download_url: str, model_name: str, category: str
 
     target_dir = get_model_folder_path(category)
     if not target_dir:
-        return {"success": False, "error": f"Cannot find or create folder for category '{category}'"}
+        return {"success": False, "error": f"无法找到或创建分类 '{category}' 的文件夹"}
 
     # Ensure filename is safe
     safe_name = os.path.basename(model_name.replace("\\", "/"))
@@ -696,20 +697,49 @@ def download_model_to_category(download_url: str, model_name: str, category: str
 
     # Don't overwrite existing files
     if os.path.exists(target_path):
-        return {"success": True, "saved_path": target_path, "message": "File already exists"}
+        return {"success": True, "saved_path": target_path, "size_mb": round(os.path.getsize(target_path) / (1024 * 1024), 2), "message": "File already exists"}
 
     try:
-        # Download to temp file first, then move
+        # Download to temp file first
         tmp_dir = tempfile.gettempdir()
         tmp_path = os.path.join(tmp_dir, f"findmodels_{safe_name}")
 
-        urllib.request.urlretrieve(download_url, tmp_path)
+        req = urllib.request.Request(download_url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "*/*",
+        })
 
-        # Verify it's a real file (not an error page)
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            # Check if response looks like a file download
+            content_type = resp.headers.get("Content-Type", "")
+            content_disp = resp.headers.get("Content-Disposition", "")
+
+            # If we got HTML, it's not a real file download
+            if "text/html" in content_type and "attachment" not in content_disp:
+                return {
+                    "success": False,
+                    "error": "链接返回了网页而非文件，可能需要登录或链接已失效",
+                    "fallback_url": download_url,
+                    "target_folder": target_dir,
+                }
+
+            with open(tmp_path, "wb") as f:
+                while True:
+                    chunk = resp.read(8192)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+
+        # Verify it's a real file
         file_size = os.path.getsize(tmp_path)
-        if file_size < 1024:  # Less than 1KB is probably an error
+        if file_size < 1024:
             os.remove(tmp_path)
-            return {"success": False, "error": "Downloaded file too small, possibly an error page"}
+            return {
+                "success": False,
+                "error": "下载文件过小，可能是错误页面",
+                "fallback_url": download_url,
+                "target_folder": target_dir,
+            }
 
         # Move to target
         shutil.move(tmp_path, target_path)
@@ -719,6 +749,13 @@ def download_model_to_category(download_url: str, model_name: str, category: str
             "saved_path": target_path,
             "size_mb": round(file_size / (1024 * 1024), 2),
         }
+    except urllib.error.HTTPError as e:
+        return {
+            "success": False,
+            "error": f"HTTP 错误 {e.code}: {e.reason}",
+            "fallback_url": download_url,
+            "target_folder": target_dir,
+        }
     except Exception as e:
         # Clean up temp file on error
         try:
@@ -726,7 +763,75 @@ def download_model_to_category(download_url: str, model_name: str, category: str
                 os.remove(tmp_path)
         except Exception:
             pass
-        return {"success": False, "error": str(e)}
+        return {
+            "success": False,
+            "error": str(e),
+            "fallback_url": download_url,
+            "target_folder": target_dir,
+        }
+
+
+def get_model_size_info(model_name: str, category: str, arch: str = None) -> dict:
+    """Estimate the file size of a model based on its name, category and architecture.
+    Uses known size tables for popular models, and heuristics for unknown ones."""
+    name_lower = model_name.lower()
+
+    # Known model sizes (GB)
+    KNOWN_SIZES = {
+        # SD 1.5 checkpoints
+        "v1-5-pruned-emaonly": 4.27,
+        "v1-5-pruned": 7.68,
+        "v1-5": 4.27,
+        "sd-v1-5": 4.27,
+        # SDXL
+        "sd_xl_base_1.0": 6.94,
+        "sd_xl_refiner_1.0": 6.16,
+        "sdxl_base": 6.94,
+        # SD3
+        "sd3-medium": 5.0,
+        "sd3-large": 10.0,
+        # Flux
+        "flux1-dev": 12.0,
+        "flux1-schnell": 12.0,
+        # VAE
+        "vae-ft-mse": 0.335,
+        "kl-f8-anime2": 0.335,
+        # LoRA (typical)
+    }
+
+    # Check exact/partial matches
+    for key, size_gb in KNOWN_SIZES.items():
+        if key in name_lower:
+            return {"size_gb": size_gb, "size_mb": round(size_gb * 1024), "source": "known"}
+
+    # Heuristic based on category and architecture
+    if category == "checkpoints":
+        if arch == "sdxl":
+            return {"size_gb": 6.5, "size_mb": 6656, "source": "estimated"}
+        elif arch == "flux":
+            return {"size_gb": 12.0, "size_mb": 12288, "source": "estimated"}
+        elif arch == "sd3":
+            return {"size_gb": 5.0, "size_mb": 5120, "source": "estimated"}
+        elif arch == "sd15":
+            return {"size_gb": 4.3, "size_mb": 4400, "source": "estimated"}
+        else:
+            return {"size_gb": 4.3, "size_mb": 4400, "source": "estimated"}
+    elif category == "vae":
+        return {"size_gb": 0.335, "size_mb": 335, "source": "estimated"}
+    elif category == "lora":
+        return {"size_gb": 0.15, "size_mb": 150, "source": "estimated"}
+    elif category == "controlnet":
+        return {"size_gb": 1.4, "size_mb": 1400, "source": "estimated"}
+    elif category == "upscale":
+        return {"size_gb": 0.065, "size_mb": 65, "source": "estimated"}
+    elif category == "clip" or category == "clip_vision":
+        return {"size_gb": 1.7, "size_mb": 1700, "source": "estimated"}
+    elif category == "ipadapter":
+        return {"size_gb": 0.9, "size_mb": 900, "source": "estimated"}
+    elif category == "unet":
+        return {"size_gb": 5.0, "size_mb": 5120, "source": "estimated"}
+    else:
+        return {"size_gb": 1.0, "size_mb": 1024, "source": "estimated"}
 
 
 def _looks_like_model(value: str, input_name: str = "", node_type: str = "") -> bool:
